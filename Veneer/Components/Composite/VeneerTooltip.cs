@@ -65,16 +65,51 @@ namespace Veneer.Components.Composite
         /// </summary>
         public static void Initialize(Transform parent)
         {
-            if (_instance != null) return;
+            // Check if instance exists and is still valid (not destroyed)
+            if (_instance != null && _instance.gameObject != null)
+            {
+                Plugin.Log.LogDebug("[VeneerTooltip] Already initialized with valid instance, skipping");
+                return;
+            }
 
-            var go = CreateUIObject("VeneerTooltip", parent);
-            var tooltip = go.AddComponent<VeneerTooltip>();
-            tooltip.Setup();
-            tooltip.HideInternal();
+            // Clear any destroyed instance reference
+            if (_instance != null)
+            {
+                Plugin.Log.LogDebug("[VeneerTooltip] Previous instance was destroyed, reinitializing...");
+                _instance = null;
+            }
+
+            if (parent == null)
+            {
+                Plugin.Log.LogError("[VeneerTooltip] Initialize called with null parent!");
+                return;
+            }
+
+            try
+            {
+                // Create GameObject directly since CreateUIObject is a protected instance method
+                var go = new GameObject("VeneerTooltip", typeof(RectTransform));
+                go.transform.SetParent(parent, false);
+
+                var tooltip = go.AddComponent<VeneerTooltip>();
+
+                // Set instance explicitly here in case Awake hasn't run yet
+                _instance = tooltip;
+
+                tooltip.Setup();
+                tooltip.HideInternal();
+
+                Plugin.Log.LogInfo($"[VeneerTooltip] Initialized successfully. Instance set: {_instance != null}");
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.LogError($"[VeneerTooltip] Failed to initialize: {ex.Message}\n{ex.StackTrace}");
+            }
         }
 
         private void Setup()
         {
+            // Get the root canvas for scale factor reference BEFORE adding our own
             _canvas = GetComponentInParent<Canvas>();
 
             // Container setup
@@ -131,14 +166,17 @@ namespace Veneer.Components.Composite
             CreateTextElements();
 
             // Ensure tooltip renders on top of everything - Tooltip layer
-            var canvas = gameObject.AddComponent<Canvas>();
-            canvas.overrideSorting = true;
-            canvas.sortingOrder = VeneerLayers.Tooltip;
+            // Add our own canvas for sorting but keep the parent canvas reference for scale
+            var tooltipCanvas = gameObject.AddComponent<Canvas>();
+            tooltipCanvas.overrideSorting = true;
+            tooltipCanvas.sortingOrder = VeneerLayers.Tooltip;
             gameObject.AddComponent<GraphicRaycaster>();
 
             var canvasGroup = gameObject.AddComponent<CanvasGroup>();
             canvasGroup.blocksRaycasts = false;
             canvasGroup.interactable = false;
+
+            Plugin.Log.LogDebug($"[VeneerTooltip] Setup complete. Parent canvas scale: {(_canvas != null ? _canvas.scaleFactor.ToString() : "null")}");
         }
 
         private void CreateTextElements()
@@ -207,7 +245,11 @@ namespace Veneer.Components.Composite
         /// </summary>
         public static void Show(TooltipData data)
         {
-            if (Instance == null) return;
+            if (Instance == null)
+            {
+                Plugin.Log.LogWarning("[VeneerTooltip] Show called but Instance is null!");
+                return;
+            }
             Instance.ShowInternal(data);
         }
 
@@ -300,6 +342,9 @@ namespace Veneer.Components.Composite
 
             // Force layout update to get accurate size
             Canvas.ForceUpdateCanvases();
+            LayoutRebuilder.ForceRebuildLayoutImmediate(_contentRect);
+            LayoutRebuilder.ForceRebuildLayoutImmediate(RectTransform);
+
             Vector2 tooltipSize = RectTransform.sizeDelta;
 
             // Handle case where size isn't calculated yet
@@ -308,8 +353,19 @@ namespace Veneer.Components.Composite
                 tooltipSize = new Vector2(200, 100); // Fallback size
             }
 
+            // Get canvas scale factor for proper positioning
+            float scaleFactor = 1f;
+            if (_canvas != null)
+            {
+                scaleFactor = _canvas.scaleFactor;
+            }
+
+            // Convert screen coordinates accounting for scale
             float screenWidth = Screen.width;
             float screenHeight = Screen.height;
+
+            // Scale the tooltip size for screen coordinate calculations
+            Vector2 scaledSize = tooltipSize * scaleFactor;
 
             // Default position: below and right of cursor
             Vector2 position = new Vector2(
@@ -318,20 +374,20 @@ namespace Veneer.Components.Composite
             );
 
             // If tooltip goes off right edge, flip to left of cursor
-            if (position.x + tooltipSize.x > screenWidth)
+            if (position.x + scaledSize.x > screenWidth)
             {
-                position.x = mousePos.x - tooltipSize.x - offset;
+                position.x = mousePos.x - scaledSize.x - offset;
             }
 
             // If tooltip goes off bottom, flip to above cursor
-            if (position.y - tooltipSize.y < 0)
+            if (position.y - scaledSize.y < 0)
             {
-                position.y = mousePos.y + tooltipSize.y + offset;
+                position.y = mousePos.y + scaledSize.y + offset;
             }
 
             // Final clamp
-            position.x = Mathf.Clamp(position.x, 0, screenWidth - tooltipSize.x);
-            position.y = Mathf.Clamp(position.y, tooltipSize.y, screenHeight);
+            position.x = Mathf.Clamp(position.x, 0, screenWidth - scaledSize.x);
+            position.y = Mathf.Clamp(position.y, scaledSize.y, screenHeight);
 
             RectTransform.position = position;
         }

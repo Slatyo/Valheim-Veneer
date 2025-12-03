@@ -38,16 +38,32 @@ namespace Veneer.Core
         /// </summary>
         internal static void Initialize()
         {
-            if (_initialized) return;
-
             // Use Jotunn's custom GUI front as the root
-            _uiRoot = GUIManager.CustomGUIFront?.transform;
+            var newUiRoot = GUIManager.CustomGUIFront?.transform;
 
-            if (_uiRoot == null)
+            if (newUiRoot == null)
             {
                 Plugin.Log.LogError("Veneer: Failed to get UI root from GUIManager");
                 return;
             }
+
+            // Check if UI root changed (scene transition) - need to reinitialize
+            bool uiRootChanged = _uiRoot != newUiRoot;
+            if (_initialized && !uiRootChanged)
+            {
+                Plugin.Log.LogDebug("Veneer: Already initialized with same UI root, skipping");
+                return;
+            }
+
+            if (uiRootChanged && _initialized)
+            {
+                Plugin.Log.LogInfo("Veneer: UI root changed, reinitializing...");
+                // Clean up old instances that were destroyed with the old UI root
+                // The GameObjects are gone, just reset the flags
+                _initialized = false;
+            }
+
+            _uiRoot = newUiRoot;
 
             // Log scaling info - Valheim uses GuiScaler which sets Canvas.scaleFactor
             // based on the GUI Scale setting in options
@@ -66,8 +82,11 @@ namespace Veneer.Core
             VeneerTooltip.Initialize(_uiRoot);
             VeneerSplitDialog.Initialize(_uiRoot);
 
-            // Subscribe to edit mode changes for overlay
-            VeneerMover.OnEditModeChanged += OnEditModeChanged;
+            // Subscribe to edit mode changes for overlay (only once)
+            if (!_initialized)
+            {
+                VeneerMover.OnEditModeChanged += OnEditModeChanged;
+            }
 
             _initialized = true;
             Plugin.Log.LogInfo("Veneer API initialized");
