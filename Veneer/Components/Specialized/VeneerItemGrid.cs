@@ -13,8 +13,9 @@ namespace Veneer.Components.Specialized
     /// <summary>
     /// Item grid component for inventory displays.
     /// Manages a grid of VeneerItemSlots.
+    /// Supports click-to-pickup/drop and drag-and-drop.
     /// </summary>
-    public class VeneerItemGrid : VeneerElement, IDropHandler
+    public class VeneerItemGrid : VeneerElement, IDropHandler, IPointerClickHandler
     {
         private List<VeneerItemSlot> _slots = new List<VeneerItemSlot>();
         private Image _backgroundImage;
@@ -25,7 +26,7 @@ namespace Veneer.Components.Specialized
         private int _height;
         private float _slotSize;
 
-        // Drag state
+        // Drag state (for drag-and-drop within same grid)
         private VeneerItemSlot _draggedSlot;
         private GameObject _dragIcon;
         private Image _dragIconImage;
@@ -246,17 +247,30 @@ namespace Veneer.Components.Specialized
         {
             OnSlotClicked?.Invoke(slot, eventData);
 
-            // Handle default click behavior
-            if (eventData.button == PointerEventData.InputButton.Right && slot.Item != null)
+            var player = Player.m_localPlayer;
+            if (player == null) return;
+
+            // Check if we're holding an item on cursor
+            if (VeneerItemCursor.IsHoldingItem)
             {
-                // Right click - use item
-                var player = Player.m_localPlayer;
-                if (player != null)
+                // Left click - place held item
+                if (eventData.button == PointerEventData.InputButton.Left)
                 {
-                    player.UseItem(_inventory, slot.Item, true);
+                    if (VeneerItemCursor.PlaceItem(_inventory, slot.GridX, slot.GridY))
+                    {
+                        UpdateAllSlots();
+                        // Also update source grid if different
+                        if (VeneerItemCursor.SourceInventory != null && VeneerItemCursor.SourceInventory != _inventory)
+                        {
+                            // Source grid will update on its own in Update()
+                        }
+                    }
                 }
+                return;
             }
-            else if (eventData.button == PointerEventData.InputButton.Left && slot.Item != null)
+
+            // Not holding item - handle normal clicks
+            if (eventData.button == PointerEventData.InputButton.Left && slot.Item != null)
             {
                 // Shift+Left click - split stack
                 if (Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift))
@@ -266,7 +280,73 @@ namespace Veneer.Components.Specialized
                         ShowSplitDialog(slot);
                     }
                 }
+                // Ctrl+Left click - quick move to other inventory (container/player)
+                else if (Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl))
+                {
+                    TryQuickMove(slot);
+                }
+                // Plain left click - pickup item to cursor
+                else
+                {
+                    VeneerItemCursor.PickupItem(slot.Item, _inventory);
+                    UpdateAllSlots();
+                }
             }
+            else if (eventData.button == PointerEventData.InputButton.Right && slot.Item != null)
+            {
+                // Right click - use item
+                player.UseItem(_inventory, slot.Item, true);
+            }
+        }
+
+        private void TryQuickMove(VeneerItemSlot slot)
+        {
+            if (slot.Item == null) return;
+
+            // Find target inventory
+            var player = Player.m_localPlayer;
+            if (player == null) return;
+
+            var playerInventory = player.GetInventory();
+            Inventory targetInventory = null;
+
+            // If this is player inventory, move to open container
+            // If this is container, move to player inventory
+            if (_inventory == playerInventory)
+            {
+                // Try to find open container
+                var containerGrid = FindOpenContainerGrid();
+                if (containerGrid != null)
+                {
+                    targetInventory = containerGrid.GridInventory;
+                }
+            }
+            else
+            {
+                // This is a container - move to player
+                targetInventory = playerInventory;
+            }
+
+            if (targetInventory == null) return;
+
+            var item = slot.Item;
+
+            // Clone item and try to add to target inventory
+            var clonedItem = item.Clone();
+            if (targetInventory.AddItem(clonedItem))
+            {
+                _inventory.RemoveItem(item);
+                UpdateAllSlots();
+            }
+        }
+
+        private VeneerItemGrid FindOpenContainerGrid()
+        {
+            // Find VeneerInventoryPanel and get its container grid
+#pragma warning disable CS0618 // Using deprecated method for Unity version compatibility
+            var panel = FindObjectOfType<Veneer.Vanilla.Replacements.VeneerInventoryPanel>();
+#pragma warning restore CS0618
+            return panel?.ContainerGrid;
         }
 
         private void ShowSplitDialog(VeneerItemSlot sourceSlot)
@@ -278,40 +358,18 @@ namespace Veneer.Components.Specialized
             {
                 if (_inventory == null || splitAmount <= 0 || splitAmount >= item.m_stack) return;
 
-                // Find an empty slot
-                Vector2i emptySlot = FindEmptySlot();
-                if (emptySlot.x >= 0)
-                {
-                    // Create a new item with the split amount
-                    var newItem = item.Clone();
-                    newItem.m_stack = splitAmount;
-                    item.m_stack -= splitAmount;
-
-                    // Add to inventory at empty slot
-                    _inventory.AddItem(newItem, splitAmount, emptySlot.x, emptySlot.y);
-                    UpdateAllSlots();
-                }
+                // Pick up split amount to cursor
+                VeneerItemCursor.PickupItem(item, _inventory, splitAmount, true);
+                UpdateAllSlots();
             });
-        }
-
-        private Vector2i FindEmptySlot()
-        {
-            for (int y = 0; y < _height; y++)
-            {
-                for (int x = 0; x < _width; x++)
-                {
-                    if (_inventory.GetItemAt(x, y) == null)
-                    {
-                        return new Vector2i(x, y);
-                    }
-                }
-            }
-            return new Vector2i(-1, -1);
         }
 
         private void HandleDragStart(VeneerItemSlot slot)
         {
             if (slot.Item == null) return;
+
+            // If already holding on cursor, don't start drag
+            if (VeneerItemCursor.IsHoldingItem) return;
 
             _draggedSlot = slot;
 
@@ -329,33 +387,154 @@ namespace Veneer.Components.Specialized
 
             if (_draggedSlot == null) return;
 
-            // Find target slot
+            // Find what's under the cursor
             var results = new List<RaycastResult>();
             EventSystem.current.RaycastAll(eventData, results);
 
             VeneerItemSlot targetSlot = null;
+            VeneerItemGrid targetGrid = null;
+
             foreach (var result in results)
             {
+                // Check for slot first
                 targetSlot = result.gameObject.GetComponent<VeneerItemSlot>();
                 if (targetSlot != null && targetSlot != _draggedSlot)
                 {
+                    targetGrid = targetSlot.GetComponentInParent<VeneerItemGrid>();
                     break;
+                }
+
+                // Check for grid (dropping on empty area of grid)
+                var grid = result.gameObject.GetComponent<VeneerItemGrid>();
+                if (grid != null)
+                {
+                    targetGrid = grid;
+                    // No specific slot - will need to find empty slot
                 }
             }
 
-            if (targetSlot != null && targetSlot.SlotInventory == _inventory)
+            var item = _draggedSlot.Item;
+            if (item == null)
             {
-                // Move item within same inventory
-                var item = _draggedSlot.Item;
-                if (item != null)
+                _draggedSlot = null;
+                return;
+            }
+
+            // Dropped on a slot
+            if (targetSlot != null && targetGrid != null)
+            {
+                var targetInventory = targetGrid.GridInventory;
+                var sourceInventory = _inventory;
+
+                if (targetInventory != null && sourceInventory != null)
                 {
-                    _inventory.MoveItemToThis(_inventory, item, item.m_stack, targetSlot.GridX, targetSlot.GridY);
+                    // Same inventory - move/swap
+                    if (targetInventory == sourceInventory)
+                    {
+                        sourceInventory.MoveItemToThis(sourceInventory, item, item.m_stack, targetSlot.GridX, targetSlot.GridY);
+                    }
+                    // Different inventory - transfer
+                    else
+                    {
+                        var targetItem = targetInventory.GetItemAt(targetSlot.GridX, targetSlot.GridY);
+                        if (targetItem == null)
+                        {
+                            // Empty slot - just move
+                            targetInventory.MoveItemToThis(sourceInventory, item, item.m_stack, targetSlot.GridX, targetSlot.GridY);
+                        }
+                        else if (CanStack(item, targetItem))
+                        {
+                            // Stack
+                            int space = targetItem.m_shared.m_maxStackSize - targetItem.m_stack;
+                            int toMove = Mathf.Min(item.m_stack, space);
+                            if (toMove > 0)
+                            {
+                                targetItem.m_stack += toMove;
+                                if (toMove >= item.m_stack)
+                                {
+                                    sourceInventory.RemoveItem(item);
+                                }
+                                else
+                                {
+                                    item.m_stack -= toMove;
+                                }
+                                targetInventory.Changed();
+                                sourceInventory.Changed();
+                            }
+                        }
+                        else
+                        {
+                            // Swap across inventories
+                            sourceInventory.RemoveItem(item);
+                            targetInventory.RemoveItem(targetItem);
+                            targetInventory.AddItem(item, item.m_stack, targetSlot.GridX, targetSlot.GridY);
+                            sourceInventory.AddItem(targetItem);
+                        }
+                    }
+
                     UpdateAllSlots();
+                    if (targetGrid != this)
+                    {
+                        targetGrid.UpdateAllSlots();
+                    }
                     OnItemMoved?.Invoke(_draggedSlot, targetSlot);
                 }
             }
+            // Dropped on grid but not on a slot - find empty slot
+            else if (targetGrid != null && targetSlot == null)
+            {
+                var emptyPos = targetGrid.FindEmptySlot();
+                if (emptyPos.x >= 0)
+                {
+                    targetGrid.GridInventory.MoveItemToThis(_inventory, item, item.m_stack, emptyPos.x, emptyPos.y);
+                    UpdateAllSlots();
+                    targetGrid.UpdateAllSlots();
+                }
+            }
+            // Dropped outside any grid - drop on ground
+            else if (targetGrid == null)
+            {
+                DropItemToGround(item);
+            }
 
             _draggedSlot = null;
+        }
+
+        private void DropItemToGround(ItemDrop.ItemData item)
+        {
+            if (item == null) return;
+
+            var player = Player.m_localPlayer;
+            if (player == null) return;
+
+            player.DropItem(_inventory, item, item.m_stack);
+            UpdateAllSlots();
+        }
+
+        private static bool CanStack(ItemDrop.ItemData a, ItemDrop.ItemData b)
+        {
+            if (a == null || b == null) return false;
+            return a.m_shared.m_name == b.m_shared.m_name &&
+                   a.m_quality == b.m_quality &&
+                   a.m_shared.m_maxStackSize > 1;
+        }
+
+        /// <summary>
+        /// Finds an empty slot in the grid.
+        /// </summary>
+        public Vector2i FindEmptySlot()
+        {
+            for (int y = 0; y < _height; y++)
+            {
+                for (int x = 0; x < _width; x++)
+                {
+                    if (_inventory.GetItemAt(x, y) == null)
+                    {
+                        return new Vector2i(x, y);
+                    }
+                }
+            }
+            return new Vector2i(-1, -1);
         }
 
         private void Update()
@@ -369,7 +548,47 @@ namespace Veneer.Components.Specialized
 
         public void OnDrop(PointerEventData eventData)
         {
-            // Handle drops from external sources if needed
+            // Handle drops from cursor (when clicking on the grid background)
+            if (VeneerItemCursor.IsHoldingItem)
+            {
+                var emptyPos = FindEmptySlot();
+                if (emptyPos.x >= 0)
+                {
+                    if (VeneerItemCursor.PlaceItem(_inventory, emptyPos.x, emptyPos.y))
+                    {
+                        UpdateAllSlots();
+                    }
+                }
+            }
+        }
+
+        public void OnPointerClick(PointerEventData eventData)
+        {
+            // Handle click on grid background (not on a slot)
+            if (VeneerItemCursor.IsHoldingItem && eventData.button == PointerEventData.InputButton.Left)
+            {
+                // Check if click was on a slot
+                var results = new List<RaycastResult>();
+                EventSystem.current.RaycastAll(eventData, results);
+
+                foreach (var result in results)
+                {
+                    if (result.gameObject.GetComponent<VeneerItemSlot>() != null)
+                    {
+                        return; // Click was on slot, handled by slot
+                    }
+                }
+
+                // Click was on grid background - find empty slot
+                var emptyPos = FindEmptySlot();
+                if (emptyPos.x >= 0)
+                {
+                    if (VeneerItemCursor.PlaceItem(_inventory, emptyPos.x, emptyPos.y))
+                    {
+                        UpdateAllSlots();
+                    }
+                }
+            }
         }
 
         /// <summary>
