@@ -1,0 +1,572 @@
+using System;
+using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
+using Veneer.Components.Primitives;
+using Veneer.Core;
+using Veneer.Grid;
+using Veneer.Theme;
+
+namespace Veneer.Components.Base
+{
+    /// <summary>
+    /// Styled frame container with border and background.
+    /// Base container for most Veneer UI elements.
+    /// Supports optional header with title, close button, and dragging.
+    /// </summary>
+    public class VeneerFrame : VeneerElement, IBeginDragHandler, IDragHandler, IEndDragHandler
+    {
+        private Image _backgroundImage;
+        private Image _borderImage;
+        private RectTransform _contentArea;
+        private RectTransform _headerRect;
+        private Text _titleText;
+
+        // Reserved for future window close button feature
+#pragma warning disable CS0169
+        private VeneerButton _closeButton;
+#pragma warning restore CS0169
+
+        // Dragging
+        private bool _isDragging;
+        private Vector2 _dragOffset;
+        private Canvas _canvas;
+        private RectTransform _canvasRect;
+
+        // Configuration
+        private bool _hasHeader;
+        private bool _hasCloseButton;
+        private bool _isDraggable;
+        private float _headerHeight = VeneerDimensions.WindowTitleHeight;
+
+        /// <summary>
+        /// The content area RectTransform (inside padding, below header if present).
+        /// </summary>
+        public RectTransform Content => _contentArea;
+
+        /// <summary>
+        /// Title text (only valid if HasHeader is true).
+        /// </summary>
+        public string Title
+        {
+            get => _titleText != null ? _titleText.text : string.Empty;
+            set
+            {
+                if (_titleText != null)
+                    _titleText.text = value;
+            }
+        }
+
+        /// <summary>
+        /// Whether the frame has a header.
+        /// </summary>
+        public bool HasHeader => _hasHeader;
+
+        /// <summary>
+        /// Whether the frame has a close button.
+        /// </summary>
+        public bool HasCloseButton => _hasCloseButton;
+
+        /// <summary>
+        /// Whether the frame is draggable.
+        /// </summary>
+        public bool IsDraggable
+        {
+            get => _isDraggable;
+            set => _isDraggable = value;
+        }
+
+        /// <summary>
+        /// Background color of the frame.
+        /// </summary>
+        public Color BackgroundColor
+        {
+            get => _backgroundImage != null ? _backgroundImage.color : VeneerColors.Background;
+            set
+            {
+                if (_backgroundImage != null)
+                    _backgroundImage.color = value;
+            }
+        }
+
+        /// <summary>
+        /// Border color of the frame.
+        /// </summary>
+        public Color BorderColor
+        {
+            get => _borderImage != null ? _borderImage.color : VeneerColors.Border;
+            set
+            {
+                if (_borderImage != null)
+                    _borderImage.color = value;
+            }
+        }
+
+        /// <summary>
+        /// Whether the border is visible.
+        /// </summary>
+        public bool ShowBorder
+        {
+            get => _borderImage != null && _borderImage.enabled;
+            set
+            {
+                if (_borderImage != null)
+                    _borderImage.enabled = value;
+            }
+        }
+
+        /// <summary>
+        /// Event fired when close button is clicked.
+        /// </summary>
+        public event Action OnCloseClicked;
+
+        /// <summary>
+        /// Creates a new VeneerFrame (simple version without header).
+        /// </summary>
+        public static VeneerFrame Create(Transform parent, string name = "VeneerFrame", float width = 200, float height = 100)
+        {
+            var go = CreateUIObject(name, parent);
+            var frame = go.AddComponent<VeneerFrame>();
+            frame.Initialize(new FrameConfig
+            {
+                Name = name,
+                Width = width,
+                Height = height
+            });
+            return frame;
+        }
+
+        /// <summary>
+        /// Creates a VeneerFrame with configuration.
+        /// </summary>
+        public static VeneerFrame Create(Transform parent, FrameConfig config)
+        {
+            var go = CreateUIObject(config.Name ?? "VeneerFrame", parent);
+            var frame = go.AddComponent<VeneerFrame>();
+            frame.Initialize(config);
+            return frame;
+        }
+
+        private void Initialize(FrameConfig config)
+        {
+            ElementId = config.Id;
+            IsMoveable = config.Moveable;
+            SavePosition = config.SavePosition;
+
+            _hasHeader = config.HasHeader;
+            _hasCloseButton = config.HasCloseButton;
+            _isDraggable = config.IsDraggable;
+            _headerHeight = config.HeaderHeight > 0 ? config.HeaderHeight : VeneerDimensions.WindowTitleHeight;
+
+            SetSize(config.Width, config.Height);
+
+            CreateBackground();
+            CreateBorder();
+
+            if (_hasHeader)
+            {
+                CreateHeader(config.Title, _hasCloseButton);
+            }
+
+            CreateContentArea();
+
+            if (config.BackgroundColor.HasValue)
+                BackgroundColor = config.BackgroundColor.Value;
+            if (config.BorderColor.HasValue)
+                BorderColor = config.BorderColor.Value;
+            ShowBorder = config.ShowBorder;
+
+            if (config.Anchor.HasValue)
+                AnchorTo(config.Anchor.Value, config.Offset);
+
+            // Register with anchor system if saveable
+            if (!string.IsNullOrEmpty(config.Id) && config.SavePosition)
+            {
+                var anchor = config.Anchor.HasValue
+                    ? ConvertToScreenAnchor(config.Anchor.Value)
+                    : ScreenAnchor.Center;
+                VeneerAnchor.Register(config.Id, anchor, config.Offset);
+
+                // Apply saved position if exists
+                var savedData = VeneerAnchor.GetAnchorData(config.Id);
+                if (savedData != null)
+                {
+                    VeneerAnchor.ApplyAnchor(RectTransform, savedData.Anchor, savedData.Offset);
+                    if (savedData.Size != Vector2.zero)
+                    {
+                        SetSize(savedData.Size.x, savedData.Size.y);
+                    }
+                }
+            }
+
+            // Add edit mode mover if moveable
+            if (config.Moveable && !string.IsNullOrEmpty(config.Id))
+            {
+                var mover = gameObject.AddComponent<VeneerMover>();
+                mover.ElementId = config.Id;
+            }
+        }
+
+        private void CreateBackground()
+        {
+            var bgGo = CreateUIObject("Background", transform);
+            var bgRect = bgGo.GetComponent<RectTransform>();
+            bgRect.anchorMin = Vector2.zero;
+            bgRect.anchorMax = Vector2.one;
+            bgRect.offsetMin = Vector2.zero;
+            bgRect.offsetMax = Vector2.zero;
+
+            _backgroundImage = bgGo.AddComponent<Image>();
+            _backgroundImage.sprite = VeneerTextures.CreatePanelSprite();
+            _backgroundImage.type = Image.Type.Sliced;
+            _backgroundImage.color = VeneerColors.Background;
+        }
+
+        private void CreateBorder()
+        {
+            var borderGo = CreateUIObject("Border", transform);
+            var borderRect = borderGo.GetComponent<RectTransform>();
+            borderRect.anchorMin = Vector2.zero;
+            borderRect.anchorMax = Vector2.one;
+            borderRect.offsetMin = Vector2.zero;
+            borderRect.offsetMax = Vector2.zero;
+
+            _borderImage = borderGo.AddComponent<Image>();
+
+            var borderTexture = VeneerTextures.CreateSlicedBorderTexture(
+                16,
+                VeneerColors.Border,
+                Color.clear,
+                1
+            );
+            _borderImage.sprite = VeneerTextures.CreateSlicedSprite(borderTexture, 1);
+            _borderImage.type = Image.Type.Sliced;
+            _borderImage.color = VeneerColors.Border;
+            _borderImage.raycastTarget = false;
+        }
+
+        private void CreateHeader(string title, bool closeable)
+        {
+            var headerGo = CreateUIObject("Header", transform);
+            _headerRect = headerGo.GetComponent<RectTransform>();
+            _headerRect.anchorMin = new Vector2(0, 1);
+            _headerRect.anchorMax = Vector2.one;
+            _headerRect.pivot = new Vector2(0.5f, 1);
+            _headerRect.sizeDelta = new Vector2(0, _headerHeight);
+            _headerRect.anchoredPosition = Vector2.zero;
+
+            // Header background
+            var headerBg = headerGo.AddComponent<Image>();
+            headerBg.color = VeneerColors.BackgroundDark;
+
+            // Title text
+            var titleGo = CreateUIObject("TitleText", _headerRect);
+            var titleRect = titleGo.GetComponent<RectTransform>();
+            titleRect.anchorMin = Vector2.zero;
+            titleRect.anchorMax = Vector2.one;
+            titleRect.offsetMin = new Vector2(VeneerDimensions.Padding + 4, 0);
+            titleRect.offsetMax = new Vector2(closeable ? -_headerHeight : -VeneerDimensions.Padding, 0);
+
+            _titleText = titleGo.AddComponent<Text>();
+            _titleText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+            _titleText.text = title ?? "Window";
+            _titleText.fontSize = VeneerConfig.GetScaledFontSize(VeneerDimensions.FontSizeNormal);
+            _titleText.fontStyle = FontStyle.Bold;
+            _titleText.color = VeneerColors.TextGold;
+            _titleText.alignment = TextAnchor.MiddleLeft;
+            _titleText.raycastTarget = false;
+
+            // Close button
+            if (closeable)
+            {
+                CreateCloseButton();
+            }
+        }
+
+        private void CreateCloseButton()
+        {
+            var closeGo = CreateUIObject("CloseButton", _headerRect);
+            var closeRect = closeGo.GetComponent<RectTransform>();
+            closeRect.anchorMin = new Vector2(1, 0);
+            closeRect.anchorMax = new Vector2(1, 1);
+            closeRect.pivot = new Vector2(1, 0.5f);
+            closeRect.sizeDelta = new Vector2(_headerHeight, 0);
+            closeRect.anchoredPosition = Vector2.zero;
+
+            // Background for hover effects
+            var bgImage = closeGo.AddComponent<Image>();
+            bgImage.color = Color.clear;
+
+            // X label
+            var xGo = CreateUIObject("X", closeRect);
+            var xRect = xGo.GetComponent<RectTransform>();
+            xRect.anchorMin = Vector2.zero;
+            xRect.anchorMax = Vector2.one;
+            xRect.offsetMin = Vector2.zero;
+            xRect.offsetMax = Vector2.zero;
+
+            var xText = xGo.AddComponent<Text>();
+            xText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+            xText.text = "×";
+            xText.fontSize = VeneerConfig.GetScaledFontSize(VeneerDimensions.FontSizeLarge);
+            xText.color = VeneerColors.TextMuted;
+            xText.alignment = TextAnchor.MiddleCenter;
+            xText.raycastTarget = false;
+
+            var button = closeGo.AddComponent<Button>();
+            button.targetGraphic = bgImage;
+            button.onClick.AddListener(OnCloseButtonClicked);
+
+            // Hover effect
+            var trigger = closeGo.AddComponent<EventTrigger>();
+
+            var enterEntry = new EventTrigger.Entry { eventID = EventTriggerType.PointerEnter };
+            enterEntry.callback.AddListener(_ => xText.color = VeneerColors.Error);
+            trigger.triggers.Add(enterEntry);
+
+            var exitEntry = new EventTrigger.Entry { eventID = EventTriggerType.PointerExit };
+            exitEntry.callback.AddListener(_ => xText.color = VeneerColors.TextMuted);
+            trigger.triggers.Add(exitEntry);
+        }
+
+        private void OnCloseButtonClicked()
+        {
+            OnCloseClicked?.Invoke();
+            Hide();
+        }
+
+        private void CreateContentArea()
+        {
+            var contentGo = CreateUIObject("Content", transform);
+            _contentArea = contentGo.GetComponent<RectTransform>();
+            _contentArea.anchorMin = Vector2.zero;
+            _contentArea.anchorMax = Vector2.one;
+
+            float topOffset = _hasHeader ? _headerHeight + VeneerDimensions.Padding : VeneerDimensions.Padding;
+            _contentArea.offsetMin = new Vector2(VeneerDimensions.Padding, VeneerDimensions.Padding);
+            _contentArea.offsetMax = new Vector2(-VeneerDimensions.Padding, -topOffset);
+        }
+
+        #region Drag Handling
+
+        public void OnBeginDrag(PointerEventData eventData)
+        {
+            if (!_isDraggable) return;
+
+            // Only drag from header if we have one, otherwise allow dragging from anywhere
+            if (_hasHeader && _headerRect != null)
+            {
+                if (!RectTransformUtility.RectangleContainsScreenPoint(_headerRect, eventData.position, eventData.pressEventCamera))
+                    return;
+            }
+
+            _isDragging = true;
+
+            // Cache canvas and its RectTransform
+            if (_canvas == null || _canvasRect == null)
+            {
+                _canvas = GetComponentInParent<Canvas>();
+                if (_canvas != null)
+                {
+                    _canvasRect = _canvas.GetComponent<RectTransform>();
+                }
+            }
+
+            if (_canvasRect != null)
+            {
+                RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                    _canvasRect,
+                    eventData.position,
+                    eventData.pressEventCamera,
+                    out var localPoint);
+
+                _dragOffset = RectTransform.anchoredPosition - localPoint;
+            }
+
+            // Bring to front
+            BringToFront();
+        }
+
+        public void OnDrag(PointerEventData eventData)
+        {
+            if (!_isDragging) return;
+            if (_canvasRect == null) return;
+
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                _canvasRect,
+                eventData.position,
+                eventData.pressEventCamera,
+                out var localPoint);
+
+            RectTransform.anchoredPosition = localPoint + _dragOffset;
+        }
+
+        public void OnEndDrag(PointerEventData eventData)
+        {
+            if (!_isDragging) return;
+            _isDragging = false;
+
+            // Save position if configured
+            if (SavePosition && !string.IsNullOrEmpty(ElementId))
+            {
+                VeneerAnchor.UpdatePosition(ElementId, ScreenAnchor.Center, RectTransform.anchoredPosition, RectTransform.sizeDelta);
+            }
+        }
+
+        #endregion
+
+        /// <summary>
+        /// Sets the internal padding of the content area.
+        /// </summary>
+        public void SetPadding(float padding)
+        {
+            if (_contentArea != null)
+            {
+                float topOffset = _hasHeader ? _headerHeight + padding : padding;
+                _contentArea.offsetMin = new Vector2(padding, padding);
+                _contentArea.offsetMax = new Vector2(-padding, -topOffset);
+            }
+        }
+
+        /// <summary>
+        /// Sets different padding for each side.
+        /// </summary>
+        public void SetPadding(float left, float right, float top, float bottom)
+        {
+            if (_contentArea != null)
+            {
+                float topOffset = _hasHeader ? _headerHeight + top : top;
+                _contentArea.offsetMin = new Vector2(left, bottom);
+                _contentArea.offsetMax = new Vector2(-right, -topOffset);
+            }
+        }
+
+        /// <summary>
+        /// Highlights the border with the accent color.
+        /// </summary>
+        public void Highlight(bool highlighted)
+        {
+            BorderColor = highlighted ? VeneerColors.BorderHighlight : VeneerColors.Border;
+        }
+
+        /// <summary>
+        /// Sets the border to a rarity color.
+        /// </summary>
+        public void SetRarityBorder(int rarityTier)
+        {
+            BorderColor = VeneerColors.GetRarityColor(rarityTier);
+        }
+
+        /// <summary>
+        /// Shows the frame and brings it to front.
+        /// </summary>
+        public override void Show()
+        {
+            base.Show();
+            BringToFront();
+        }
+
+        private ScreenAnchor ConvertToScreenAnchor(AnchorPreset preset)
+        {
+            return preset switch
+            {
+                AnchorPreset.TopLeft => ScreenAnchor.TopLeft,
+                AnchorPreset.TopCenter => ScreenAnchor.TopCenter,
+                AnchorPreset.TopRight => ScreenAnchor.TopRight,
+                AnchorPreset.MiddleLeft => ScreenAnchor.Left,
+                AnchorPreset.MiddleCenter => ScreenAnchor.Center,
+                AnchorPreset.MiddleRight => ScreenAnchor.Right,
+                AnchorPreset.BottomLeft => ScreenAnchor.BottomLeft,
+                AnchorPreset.BottomCenter => ScreenAnchor.BottomCenter,
+                AnchorPreset.BottomRight => ScreenAnchor.BottomRight,
+                _ => ScreenAnchor.Center
+            };
+        }
+    }
+
+    /// <summary>
+    /// Configuration for creating a VeneerFrame.
+    /// </summary>
+    public class FrameConfig
+    {
+        /// <summary>
+        /// Unique identifier for this frame.
+        /// </summary>
+        public string Id { get; set; }
+
+        /// <summary>
+        /// GameObject name.
+        /// </summary>
+        public string Name { get; set; }
+
+        /// <summary>
+        /// Window title (only shown if HasHeader is true).
+        /// </summary>
+        public string Title { get; set; }
+
+        /// <summary>
+        /// Width in pixels.
+        /// </summary>
+        public float Width { get; set; } = 200;
+
+        /// <summary>
+        /// Height in pixels.
+        /// </summary>
+        public float Height { get; set; } = 100;
+
+        /// <summary>
+        /// Header height in pixels (defaults to VeneerDimensions.WindowTitleHeight).
+        /// </summary>
+        public float HeaderHeight { get; set; } = 0;
+
+        /// <summary>
+        /// Whether to show a header bar with title.
+        /// </summary>
+        public bool HasHeader { get; set; } = false;
+
+        /// <summary>
+        /// Whether to show a close button (requires HasHeader = true).
+        /// </summary>
+        public bool HasCloseButton { get; set; } = false;
+
+        /// <summary>
+        /// Whether the frame can be dragged (drags from header if present, else anywhere).
+        /// </summary>
+        public bool IsDraggable { get; set; } = false;
+
+        /// <summary>
+        /// Optional background color override.
+        /// </summary>
+        public Color? BackgroundColor { get; set; }
+
+        /// <summary>
+        /// Optional border color override.
+        /// </summary>
+        public Color? BorderColor { get; set; }
+
+        /// <summary>
+        /// Whether to show the border.
+        /// </summary>
+        public bool ShowBorder { get; set; } = true;
+
+        /// <summary>
+        /// Anchor preset position.
+        /// </summary>
+        public AnchorPreset? Anchor { get; set; }
+
+        /// <summary>
+        /// Offset from anchor position.
+        /// </summary>
+        public Vector2 Offset { get; set; }
+
+        /// <summary>
+        /// Whether this frame can be moved in edit mode.
+        /// </summary>
+        public bool Moveable { get; set; } = false;
+
+        /// <summary>
+        /// Whether to save the position.
+        /// </summary>
+        public bool SavePosition { get; set; } = false;
+    }
+}
