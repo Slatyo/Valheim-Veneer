@@ -320,7 +320,8 @@ namespace Veneer.Components.Specialized
                 RarityTier = _item.m_quality > 1 ? Mathf.Min(_item.m_quality, 5) : (int?)null
             };
 
-            VeneerTooltip.Show(tooltip);
+            // Use ShowForItem to allow tooltip providers to modify the tooltip
+            VeneerTooltip.ShowForItem(_item, tooltip);
         }
 
         private string GetItemSubtitle()

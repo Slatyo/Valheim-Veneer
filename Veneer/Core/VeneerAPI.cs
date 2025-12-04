@@ -501,11 +501,36 @@ namespace Veneer.Core
         }
 
         /// <summary>
+        /// Shows a tooltip for an item, allowing registered providers to modify it.
+        /// </summary>
+        public static void ShowItemTooltip(ItemDrop.ItemData item, TooltipData baseTooltip)
+        {
+            VeneerTooltip.ShowForItem(item, baseTooltip);
+        }
+
+        /// <summary>
         /// Hides the tooltip.
         /// </summary>
         public static void HideTooltip()
         {
             VeneerTooltip.Hide();
+        }
+
+        /// <summary>
+        /// Registers a tooltip provider that can modify item tooltips.
+        /// Providers are called in order of priority (lowest first).
+        /// </summary>
+        public static void RegisterTooltipProvider(IItemTooltipProvider provider)
+        {
+            VeneerTooltip.RegisterProvider(provider);
+        }
+
+        /// <summary>
+        /// Unregisters a tooltip provider.
+        /// </summary>
+        public static void UnregisterTooltipProvider(IItemTooltipProvider provider)
+        {
+            VeneerTooltip.UnregisterProvider(provider);
         }
 
         #endregion

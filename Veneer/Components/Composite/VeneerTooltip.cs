@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using Veneer.Components.Base;
@@ -8,12 +9,103 @@ using Veneer.Theme;
 namespace Veneer.Components.Composite
 {
     /// <summary>
+    /// Context passed to tooltip providers when building item tooltips.
+    /// </summary>
+    public class ItemTooltipContext
+    {
+        /// <summary>
+        /// The item being displayed.
+        /// </summary>
+        public ItemDrop.ItemData Item { get; set; }
+
+        /// <summary>
+        /// The tooltip data being built. Providers can modify this.
+        /// </summary>
+        public TooltipData Tooltip { get; set; }
+    }
+
+    /// <summary>
+    /// Interface for tooltip providers that can modify item tooltips.
+    /// </summary>
+    public interface IItemTooltipProvider
+    {
+        /// <summary>
+        /// Priority for ordering providers. Higher values run later.
+        /// Default providers (vanilla) are 0, affixes should be negative to prepend.
+        /// </summary>
+        int Priority { get; }
+
+        /// <summary>
+        /// Modifies the tooltip data for an item.
+        /// </summary>
+        void ModifyTooltip(ItemTooltipContext context);
+    }
+
+    /// <summary>
     /// Tooltip component with rich formatting and positioning.
     /// Follows mouse cursor and auto-positions to stay on screen.
     /// </summary>
     public class VeneerTooltip : VeneerElement
     {
         private static VeneerTooltip _instance;
+        private static readonly List<IItemTooltipProvider> _tooltipProviders = new List<IItemTooltipProvider>();
+
+        /// <summary>
+        /// Registers a tooltip provider that will be called when item tooltips are shown.
+        /// Providers are called in order of priority (lowest first).
+        /// </summary>
+        public static void RegisterProvider(IItemTooltipProvider provider)
+        {
+            if (provider == null) return;
+
+            // Insert in priority order
+            int index = 0;
+            for (; index < _tooltipProviders.Count; index++)
+            {
+                if (_tooltipProviders[index].Priority > provider.Priority)
+                    break;
+            }
+            _tooltipProviders.Insert(index, provider);
+            Plugin.Log.LogInfo($"[VeneerTooltip] Registered tooltip provider: {provider.GetType().Name} (priority {provider.Priority})");
+        }
+
+        /// <summary>
+        /// Unregisters a tooltip provider.
+        /// </summary>
+        public static void UnregisterProvider(IItemTooltipProvider provider)
+        {
+            if (provider == null) return;
+            _tooltipProviders.Remove(provider);
+            Plugin.Log.LogInfo($"[VeneerTooltip] Unregistered tooltip provider: {provider.GetType().Name}");
+        }
+
+        /// <summary>
+        /// Builds tooltip data for an item, allowing all registered providers to modify it.
+        /// </summary>
+        public static TooltipData BuildItemTooltip(ItemDrop.ItemData item, TooltipData baseTooltip)
+        {
+            if (item == null) return baseTooltip;
+
+            var context = new ItemTooltipContext
+            {
+                Item = item,
+                Tooltip = baseTooltip
+            };
+
+            foreach (var provider in _tooltipProviders)
+            {
+                try
+                {
+                    provider.ModifyTooltip(context);
+                }
+                catch (Exception ex)
+                {
+                    Plugin.Log.LogError($"[VeneerTooltip] Provider {provider.GetType().Name} threw exception: {ex.Message}");
+                }
+            }
+
+            return context.Tooltip;
+        }
 
         /// <summary>
         /// Singleton instance. Returns null if not initialized.
@@ -249,6 +341,18 @@ namespace Veneer.Components.Composite
                 return;
             }
             Instance.ShowInternal(data);
+        }
+
+        /// <summary>
+        /// Shows a tooltip for an item, allowing registered providers to modify it.
+        /// This is the preferred method for showing item tooltips.
+        /// </summary>
+        public static void ShowForItem(ItemDrop.ItemData item, TooltipData baseTooltip)
+        {
+            if (item == null || Instance == null) return;
+
+            var finalTooltip = BuildItemTooltip(item, baseTooltip);
+            Instance.ShowInternal(finalTooltip);
         }
 
         /// <summary>
