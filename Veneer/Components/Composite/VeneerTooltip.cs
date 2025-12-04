@@ -27,7 +27,6 @@ namespace Veneer.Components.Composite
 
         private Image _backgroundImage;
         private Image _borderImage;
-        private VerticalLayoutGroup _contentLayout;
         private RectTransform _contentRect;
         private Canvas _canvas;
 
@@ -112,61 +111,7 @@ namespace Veneer.Components.Composite
             // Get the root canvas for scale factor reference BEFORE adding our own
             _canvas = GetComponentInParent<Canvas>();
 
-            // Container setup
-            SetPivot(0, 1); // Top-left pivot
-
-            // Background
-            _backgroundImage = gameObject.AddComponent<Image>();
-            _backgroundImage.sprite = VeneerTextures.CreatePanelSprite();
-            _backgroundImage.type = Image.Type.Sliced;
-            _backgroundImage.color = VeneerColors.BackgroundSolid;
-
-            // Border
-            var borderGo = CreateUIObject("Border", transform);
-            var borderRect = borderGo.GetComponent<RectTransform>();
-            borderRect.anchorMin = Vector2.zero;
-            borderRect.anchorMax = Vector2.one;
-            borderRect.offsetMin = Vector2.zero;
-            borderRect.offsetMax = Vector2.zero;
-
-            _borderImage = borderGo.AddComponent<Image>();
-            var borderTexture = VeneerTextures.CreateSlicedBorderTexture(16, VeneerColors.Border, Color.clear, 1);
-            _borderImage.sprite = VeneerTextures.CreateSlicedSprite(borderTexture, 1);
-            _borderImage.type = Image.Type.Sliced;
-            _borderImage.raycastTarget = false;
-
-            // Content container
-            var contentGo = CreateUIObject("Content", transform);
-            _contentRect = contentGo.GetComponent<RectTransform>();
-            _contentRect.anchorMin = Vector2.zero;
-            _contentRect.anchorMax = Vector2.one;
-            _contentRect.offsetMin = new Vector2(VeneerDimensions.TooltipPadding, VeneerDimensions.TooltipPadding);
-            _contentRect.offsetMax = new Vector2(-VeneerDimensions.TooltipPadding, -VeneerDimensions.TooltipPadding);
-
-            _contentLayout = contentGo.AddComponent<VerticalLayoutGroup>();
-            _contentLayout.childAlignment = TextAnchor.UpperLeft;
-            _contentLayout.childControlWidth = true;
-            _contentLayout.childControlHeight = true;
-            _contentLayout.childForceExpandWidth = true;
-            _contentLayout.childForceExpandHeight = false;
-            _contentLayout.spacing = VeneerDimensions.Spacing;
-            _contentLayout.padding = new RectOffset(0, 0, 0, 0);
-
-            // Content size fitter
-            var fitter = contentGo.AddComponent<ContentSizeFitter>();
-            fitter.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
-            fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
-
-            // Also add to main object
-            var mainFitter = gameObject.AddComponent<ContentSizeFitter>();
-            mainFitter.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
-            mainFitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
-
-            // Create text elements
-            CreateTextElements();
-
-            // Ensure tooltip renders on top of everything - Tooltip layer
-            // Add our own canvas for sorting but keep the parent canvas reference for scale
+            // Ensure tooltip renders on top of everything - add Canvas FIRST
             var tooltipCanvas = gameObject.AddComponent<Canvas>();
             tooltipCanvas.overrideSorting = true;
             tooltipCanvas.sortingOrder = VeneerLayers.Tooltip;
@@ -176,13 +121,63 @@ namespace Veneer.Components.Composite
             canvasGroup.blocksRaycasts = false;
             canvasGroup.interactable = false;
 
+            // Main container uses VerticalLayoutGroup with padding for the background effect
+            var mainLayout = gameObject.AddComponent<VerticalLayoutGroup>();
+            mainLayout.childAlignment = TextAnchor.UpperLeft;
+            mainLayout.childControlWidth = true;
+            mainLayout.childControlHeight = true;
+            mainLayout.childForceExpandWidth = true;
+            mainLayout.childForceExpandHeight = false;
+            mainLayout.spacing = VeneerDimensions.Spacing;
+            int padding = (int)VeneerDimensions.TooltipPadding;
+            mainLayout.padding = new RectOffset(padding, padding, padding, padding);
+
+            // Main object size fitter
+            var mainFitter = gameObject.AddComponent<ContentSizeFitter>();
+            mainFitter.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
+            mainFitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            // Background with semi-transparent dark color
+            _backgroundImage = gameObject.AddComponent<Image>();
+            _backgroundImage.sprite = VeneerTextures.CreateSlicedSprite(
+                VeneerTextures.CreateSlicedBorderTexture(16, VeneerColors.BorderLight, VeneerColors.Background, 2), 2);
+            _backgroundImage.type = Image.Type.Sliced;
+            _backgroundImage.color = Color.white; // The sprite already has the colors baked in
+
+            // Border overlay for rarity coloring (sits on top of background)
+            var borderGo = new GameObject("Border", typeof(RectTransform));
+            borderGo.transform.SetParent(transform, false);
+            var borderRect = borderGo.GetComponent<RectTransform>();
+            borderRect.anchorMin = Vector2.zero;
+            borderRect.anchorMax = Vector2.one;
+            borderRect.offsetMin = Vector2.zero;
+            borderRect.offsetMax = Vector2.zero;
+
+            _borderImage = borderGo.AddComponent<Image>();
+            _borderImage.sprite = VeneerTextures.CreateSlicedSprite(
+                VeneerTextures.CreateSlicedBorderTexture(16, Color.white, Color.clear, 2), 2);
+            _borderImage.type = Image.Type.Sliced;
+            _borderImage.color = VeneerColors.BorderLight; // Will be tinted for rarity
+            _borderImage.raycastTarget = false;
+
+            // Make border ignore layout
+            var borderLayout = borderGo.AddComponent<LayoutElement>();
+            borderLayout.ignoreLayout = true;
+
+            // Store content rect reference (it's now the main object)
+            _contentRect = RectTransform;
+
+            // Create text elements directly as children
+            CreateTextElements();
+
             Plugin.Log.LogDebug($"[VeneerTooltip] Setup complete. Parent canvas scale: {(_canvas != null ? _canvas.scaleFactor.ToString() : "null")}");
         }
 
         private void CreateTextElements()
         {
             // Title
-            var titleGo = CreateUIObject("Title", _contentRect);
+            var titleGo = new GameObject("Title", typeof(RectTransform));
+            titleGo.transform.SetParent(transform, false);
             _titleText = titleGo.AddComponent<Text>();
             _titleText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
             _titleText.fontSize = VeneerConfig.GetScaledFontSize(VeneerDimensions.FontSizeMedium);
@@ -194,7 +189,8 @@ namespace Veneer.Components.Composite
             titleLayout.preferredWidth = VeneerDimensions.TooltipMaxWidth;
 
             // Subtitle
-            var subtitleGo = CreateUIObject("Subtitle", _contentRect);
+            var subtitleGo = new GameObject("Subtitle", typeof(RectTransform));
+            subtitleGo.transform.SetParent(transform, false);
             _subtitleText = subtitleGo.AddComponent<Text>();
             _subtitleText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
             _subtitleText.fontSize = VeneerConfig.GetScaledFontSize(VeneerDimensions.FontSizeSmall);
@@ -205,15 +201,17 @@ namespace Veneer.Components.Composite
             subtitleLayout.preferredWidth = VeneerDimensions.TooltipMaxWidth;
 
             // Divider
-            _divider = CreateUIObject("Divider", _contentRect);
+            _divider = new GameObject("Divider", typeof(RectTransform));
+            _divider.transform.SetParent(transform, false);
             var dividerImage = _divider.AddComponent<Image>();
-            dividerImage.color = VeneerColors.Border;
+            dividerImage.color = VeneerColors.BorderLight;
             var dividerLayout = _divider.AddComponent<LayoutElement>();
             dividerLayout.preferredHeight = 1;
             dividerLayout.flexibleWidth = 1;
 
             // Body
-            var bodyGo = CreateUIObject("Body", _contentRect);
+            var bodyGo = new GameObject("Body", typeof(RectTransform));
+            bodyGo.transform.SetParent(transform, false);
             _bodyText = bodyGo.AddComponent<Text>();
             _bodyText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
             _bodyText.fontSize = VeneerConfig.GetScaledFontSize(VeneerDimensions.FontSizeNormal);
@@ -338,7 +336,7 @@ namespace Veneer.Components.Composite
         private void UpdatePosition()
         {
             Vector2 mousePos = Input.mousePosition;
-            float offset = 15f;
+            float offset = 12f;
 
             // Force layout update to get accurate size
             Canvas.ForceUpdateCanvases();
@@ -360,34 +358,79 @@ namespace Veneer.Components.Composite
                 scaleFactor = _canvas.scaleFactor;
             }
 
-            // Convert screen coordinates accounting for scale
             float screenWidth = Screen.width;
             float screenHeight = Screen.height;
 
             // Scale the tooltip size for screen coordinate calculations
             Vector2 scaledSize = tooltipSize * scaleFactor;
 
-            // Default position: below and right of cursor
-            Vector2 position = new Vector2(
-                mousePos.x + offset,
-                mousePos.y - offset
-            );
+            // Determine which quadrant to place tooltip based on available space
+            // Default: top-right of cursor (tooltip's bottom-left corner at cursor)
+            bool placeRight = true;
+            bool placeAbove = true;
 
-            // If tooltip goes off right edge, flip to left of cursor
-            if (position.x + scaledSize.x > screenWidth)
+            // Check if tooltip would go off right edge
+            if (mousePos.x + offset + scaledSize.x > screenWidth)
             {
-                position.x = mousePos.x - scaledSize.x - offset;
+                placeRight = false;
             }
 
-            // If tooltip goes off bottom, flip to above cursor
-            if (position.y - scaledSize.y < 0)
+            // Check if tooltip would go off top edge
+            if (mousePos.y + offset + scaledSize.y > screenHeight)
             {
-                position.y = mousePos.y + scaledSize.y + offset;
+                placeAbove = false;
             }
 
-            // Final clamp
-            position.x = Mathf.Clamp(position.x, 0, screenWidth - scaledSize.x);
-            position.y = Mathf.Clamp(position.y, scaledSize.y, screenHeight);
+            // Calculate position based on quadrant
+            Vector2 position;
+            Vector2 pivot;
+
+            if (placeRight && placeAbove)
+            {
+                // Top-right: tooltip bottom-left at cursor top-right
+                position = new Vector2(mousePos.x + offset, mousePos.y + offset);
+                pivot = new Vector2(0, 0); // Bottom-left pivot
+            }
+            else if (!placeRight && placeAbove)
+            {
+                // Top-left: tooltip bottom-right at cursor top-left
+                position = new Vector2(mousePos.x - offset, mousePos.y + offset);
+                pivot = new Vector2(1, 0); // Bottom-right pivot
+            }
+            else if (placeRight && !placeAbove)
+            {
+                // Bottom-right: tooltip top-left at cursor bottom-right
+                position = new Vector2(mousePos.x + offset, mousePos.y - offset);
+                pivot = new Vector2(0, 1); // Top-left pivot
+            }
+            else
+            {
+                // Bottom-left: tooltip top-right at cursor bottom-left
+                position = new Vector2(mousePos.x - offset, mousePos.y - offset);
+                pivot = new Vector2(1, 1); // Top-right pivot
+            }
+
+            // Update pivot for proper anchoring
+            RectTransform.pivot = pivot;
+
+            // Final safety clamp to keep tooltip fully on screen
+            if (pivot.x == 0) // Left-anchored
+            {
+                position.x = Mathf.Min(position.x, screenWidth - scaledSize.x);
+            }
+            else // Right-anchored
+            {
+                position.x = Mathf.Max(position.x, scaledSize.x);
+            }
+
+            if (pivot.y == 0) // Bottom-anchored
+            {
+                position.y = Mathf.Min(position.y, screenHeight - scaledSize.y);
+            }
+            else // Top-anchored
+            {
+                position.y = Mathf.Max(position.y, scaledSize.y);
+            }
 
             RectTransform.position = position;
         }
