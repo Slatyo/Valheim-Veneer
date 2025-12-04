@@ -1,8 +1,10 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using UnityEngine.UI;
 using Veneer.Components.Base;
+using Veneer.Components.Composite;
 using Veneer.Components.Primitives;
 using Veneer.Core;
 using Veneer.Grid;
@@ -12,8 +14,8 @@ namespace Veneer.Vanilla.Replacements
 {
     /// <summary>
     /// Crafting panel replacement.
-    /// Features a recipe grid on the left and crafting details on the right.
-    /// Uses VeneerFrame for consistent header/dragging/close button.
+    /// Layout: TopBar (search + sort buttons) → Tabs → Card Grid → Preview Panel
+    /// Uses reusable Veneer components.
     /// </summary>
     public class VeneerCraftingPanel : VeneerElement
     {
@@ -21,20 +23,28 @@ namespace Veneer.Vanilla.Replacements
 
         private VeneerFrame _frame;
 
-        // Recipe list (left side)
-        private RectTransform _recipeContent;
-        private ScrollRect _recipeScrollRect;
-        private List<RecipeCard> _recipeCards = new List<RecipeCard>();
+        // Top bar components
+        private VeneerSearchInput _searchInput;
+        private VeneerToggleButton _sortNameButton;
+        private VeneerToggleButton _craftableOnlyButton;
 
-        // Crafting details (right side)
-        private GameObject _detailsPanel;
-        private Image _selectedItemIcon;
-        private VeneerText _selectedItemName;
-        private VeneerText _selectedItemDescription;
-        private VeneerText _itemStatsText;
-        private RectTransform _requirementsContent;
+        // Tab bar
+        private VeneerTabBar _tabBar;
+
+        // Recipe grid
+        private ScrollRect _recipeScrollRect;
+        private RectTransform _recipeContent;
+        private List<VeneerCard> _recipeCards = new List<VeneerCard>();
+
+        // Preview panel
+        private RectTransform _previewPanel;
+        private Image _previewIcon;
+        private VeneerText _previewName;
+        private VeneerText _previewSubtitle;
+        private VeneerText _previewStats;
+        private RectTransform _requirementsContainer;
         private VeneerButton _craftButton;
-        private VeneerText _stationText;
+        private List<VeneerRequirementRow> _requirementRows = new List<VeneerRequirementRow>();
 
         // State
         private Player _player;
@@ -42,9 +52,13 @@ namespace Veneer.Vanilla.Replacements
         private Recipe _selectedRecipe;
         private List<Recipe> _availableRecipes = new List<Recipe>();
 
-        // Category filter
+        // Filter state
         private string _currentCategory = "All";
-        private Dictionary<string, VeneerButton> _categoryButtons = new Dictionary<string, VeneerButton>();
+        private string _searchQuery = "";
+        private SortMode _sortMode = SortMode.None;
+        private bool _craftableOnly = false;
+
+        private enum SortMode { None, Name }
 
         /// <summary>
         /// Creates the crafting panel.
@@ -65,13 +79,13 @@ namespace Veneer.Vanilla.Replacements
             LayerType = VeneerLayerType.Window;
             AutoRegisterWithManager = true;
 
-            float width = 700f;
-            float height = 550f;
+            float width = 650f;
+            float height = 650f;
 
             SetSize(width, height);
             AnchorTo(AnchorPreset.MiddleCenter);
 
-            // Create VeneerFrame with header, close button, and dragging
+            // Create VeneerFrame
             _frame = VeneerFrame.Create(transform, new FrameConfig
             {
                 Id = ElementIdCrafting,
@@ -93,120 +107,140 @@ namespace Veneer.Vanilla.Replacements
             _frame.RectTransform.offsetMin = Vector2.zero;
             _frame.RectTransform.offsetMax = Vector2.zero;
 
-            // Connect close event
             _frame.OnCloseClicked += Hide;
 
-            // Use frame's content area for all inner content
             var content = _frame.Content;
 
-            // Category bar at the top of content
-            CreateCategoryBar(content);
+            // Layout from top to bottom:
+            // 1. Top bar (search + buttons) - 36px
+            // 2. Tab bar - 30px
+            // 3. Recipe grid - flexible, ~55%
+            // 4. Preview panel - ~180px
 
-            // Main content area (below categories) - use percentage-based layout
-            float categoryHeight = 32f;
+            float topBarHeight = 36f;
+            float tabBarHeight = 30f;
+            float previewHeight = 190f;
+            float spacing = 8f;
 
-            // Left panel - Recipe list (40% width) - percentage based
-            CreateRecipeList(content, categoryHeight, 0.40f);
-
-            // Right panel - Details (60% width) - percentage based
-            CreateDetailsPanel(content, categoryHeight, 0.40f, 0.60f);
+            CreateTopBar(content, topBarHeight);
+            CreateTabBar(content, topBarHeight + spacing, tabBarHeight);
+            CreateRecipeGrid(content, topBarHeight + tabBarHeight + spacing * 2, previewHeight + spacing);
+            CreatePreviewPanel(content, previewHeight);
 
             // Add resizer
             var resizer = gameObject.AddComponent<VeneerResizer>();
-            resizer.MinSize = new Vector2(550, 400);
-            resizer.MaxSize = new Vector2(1000, 800);
+            resizer.MinSize = new Vector2(500, 500);
+            resizer.MaxSize = new Vector2(1000, 900);
 
-            // Start hidden - must register BEFORE SetActive(false) since Start() won't be called
+            // Register and start hidden
             RegisterWithManager();
             gameObject.SetActive(false);
         }
 
-        private void CreateCategoryBar(RectTransform parent)
+        private void CreateTopBar(RectTransform parent, float height)
         {
-            var categoryBar = CreateUIObject("CategoryBar", parent);
-            var categoryRect = categoryBar.GetComponent<RectTransform>();
-            categoryRect.anchorMin = new Vector2(0, 1);
-            categoryRect.anchorMax = new Vector2(1, 1);
-            categoryRect.pivot = new Vector2(0.5f, 1);
-            categoryRect.anchoredPosition = Vector2.zero;
-            categoryRect.sizeDelta = new Vector2(0, 28f);
+            var topBar = CreateUIObject("TopBar", parent);
+            var topBarRect = topBar.GetComponent<RectTransform>();
+            topBarRect.anchorMin = new Vector2(0, 1);
+            topBarRect.anchorMax = new Vector2(1, 1);
+            topBarRect.pivot = new Vector2(0.5f, 1);
+            topBarRect.anchoredPosition = Vector2.zero;
+            topBarRect.sizeDelta = new Vector2(0, height);
 
-            var layout = categoryBar.AddComponent<HorizontalLayoutGroup>();
+            // Background
+            var bgImage = topBar.AddComponent<Image>();
+            bgImage.color = VeneerColors.BackgroundDark;
+
+            // Horizontal layout
+            var layout = topBar.AddComponent<HorizontalLayoutGroup>();
             layout.childAlignment = TextAnchor.MiddleLeft;
             layout.childControlWidth = false;
             layout.childControlHeight = true;
             layout.childForceExpandWidth = false;
             layout.childForceExpandHeight = true;
-            layout.spacing = 4f;
-            layout.padding = new RectOffset(0, 0, 0, 0);
+            layout.spacing = 8f;
+            layout.padding = new RectOffset(8, 8, 4, 4);
 
-            // Category buttons
-            string[] categories = { "All", "Weapons", "Armor", "Tools", "Building", "Food", "Misc" };
-            foreach (var cat in categories)
-            {
-                var btn = VeneerButton.Create(categoryBar.transform, cat, () => FilterByCategory(cat));
-                btn.SetButtonSize(ButtonSize.Small);
-                var le = btn.gameObject.AddComponent<LayoutElement>();
-                le.preferredWidth = cat == "Building" ? 65f : 55f;
-                _categoryButtons[cat] = btn;
-            }
+            // Search input
+            _searchInput = VeneerSearchInput.Create(topBar.transform, "Search recipes...");
+            var searchLE = _searchInput.gameObject.AddComponent<LayoutElement>();
+            searchLE.flexibleWidth = 1f;
+            searchLE.minWidth = 150f;
+            _searchInput.OnValueChanged += OnSearchChanged;
 
-            // Highlight "All" by default
-            if (_categoryButtons.TryGetValue("All", out var allBtn))
-            {
-                allBtn.SetStyle(ButtonStyle.Primary);
-            }
+            // Sort A-Z button
+            _sortNameButton = VeneerToggleButton.Create(topBar.transform, "Sort A-Z");
+            var sortNameLE = _sortNameButton.gameObject.AddComponent<LayoutElement>();
+            sortNameLE.preferredWidth = 70f;
+            _sortNameButton.OnClick += OnSortNameClicked;
+
+            // Craftable only button
+            _craftableOnlyButton = VeneerToggleButton.Create(topBar.transform, "Craftable");
+            var craftableLE = _craftableOnlyButton.gameObject.AddComponent<LayoutElement>();
+            craftableLE.preferredWidth = 75f;
+            _craftableOnlyButton.OnToggled += OnCraftableOnlyToggled;
         }
 
-        private void CreateRecipeList(RectTransform parent, float topOffset, float widthPercent)
+        private void CreateTabBar(RectTransform parent, float topOffset, float height)
         {
-            // Container - use percentage-based anchors so it scales with parent
-            var container = CreateUIObject("RecipeListContainer", parent);
-            var containerRect = container.GetComponent<RectTransform>();
-            containerRect.anchorMin = new Vector2(0, 0);
-            containerRect.anchorMax = new Vector2(widthPercent, 1);
-            containerRect.pivot = new Vector2(0, 0.5f);
-            // Use offsets from anchors
-            containerRect.offsetMin = new Vector2(0, 0); // left, bottom
-            containerRect.offsetMax = new Vector2(-6, -topOffset - 4); // right margin, top offset
+            _tabBar = VeneerTabBar.Create(parent, height);
 
-            // Background for recipe list
-            var bgImage = container.AddComponent<Image>();
+            var tabBarRect = _tabBar.RectTransform;
+            tabBarRect.anchorMin = new Vector2(0, 1);
+            tabBarRect.anchorMax = new Vector2(1, 1);
+            tabBarRect.pivot = new Vector2(0.5f, 1);
+            tabBarRect.anchoredPosition = new Vector2(0, -topOffset);
+            tabBarRect.sizeDelta = new Vector2(0, height);
+
+            _tabBar.AddTabs(
+                ("All", "All", 45f),
+                ("Weapons", "Weapons", 70f),
+                ("Armor", "Armor", 55f),
+                ("Tools", "Tools", 50f),
+                ("Food", "Food", 45f),
+                ("Misc", "Misc", 45f)
+            );
+
+            _tabBar.OnTabSelected += OnCategoryChanged;
+            _tabBar.SelectTab("All");
+        }
+
+        private void CreateRecipeGrid(RectTransform parent, float topOffset, float bottomOffset)
+        {
+            var gridContainer = CreateUIObject("GridContainer", parent);
+            var gridRect = gridContainer.GetComponent<RectTransform>();
+            gridRect.anchorMin = new Vector2(0, 0);
+            gridRect.anchorMax = new Vector2(1, 1);
+            gridRect.offsetMin = new Vector2(0, bottomOffset);
+            gridRect.offsetMax = new Vector2(0, -topOffset);
+
+            // Background
+            var bgImage = gridContainer.AddComponent<Image>();
             bgImage.color = VeneerColors.BackgroundDark;
 
-            // Add RectMask2D to clip overflow
-            container.AddComponent<RectMask2D>();
-
-            // Scroll view - stretches to fill container
-            var scrollGo = CreateUIObject("ScrollView", container.transform);
-            var scrollViewRect = scrollGo.GetComponent<RectTransform>();
-            scrollViewRect.anchorMin = Vector2.zero;
-            scrollViewRect.anchorMax = Vector2.one;
-            scrollViewRect.offsetMin = new Vector2(4, 4);
-            scrollViewRect.offsetMax = new Vector2(-4, -4);
-
-            _recipeScrollRect = scrollGo.AddComponent<ScrollRect>();
+            // Scroll view
+            _recipeScrollRect = gridContainer.AddComponent<ScrollRect>();
             _recipeScrollRect.horizontal = false;
             _recipeScrollRect.vertical = true;
             _recipeScrollRect.movementType = ScrollRect.MovementType.Clamped;
-            _recipeScrollRect.scrollSensitivity = 50f;
+            _recipeScrollRect.scrollSensitivity = 30f;
 
             // Viewport
-            var viewportGo = CreateUIObject("Viewport", scrollGo.transform);
+            var viewportGo = CreateUIObject("Viewport", gridContainer.transform);
             var viewportRect = viewportGo.GetComponent<RectTransform>();
             viewportRect.anchorMin = Vector2.zero;
             viewportRect.anchorMax = Vector2.one;
-            viewportRect.offsetMin = Vector2.zero;
-            viewportRect.offsetMax = Vector2.zero;
+            viewportRect.offsetMin = new Vector2(8, 8);
+            viewportRect.offsetMax = new Vector2(-8, -8);
 
-            var viewportMask = viewportGo.AddComponent<Mask>();
-            viewportMask.showMaskGraphic = false;
-            var viewportImage = viewportGo.AddComponent<Image>();
-            viewportImage.color = Color.white;
+            var mask = viewportGo.AddComponent<Mask>();
+            mask.showMaskGraphic = false;
+            var maskImage = viewportGo.AddComponent<Image>();
+            maskImage.color = Color.white;
 
             _recipeScrollRect.viewport = viewportRect;
 
-            // Content - use VerticalLayoutGroup instead of GridLayout for better scaling
+            // Content with grid layout
             var contentGo = CreateUIObject("Content", viewportGo.transform);
             _recipeContent = contentGo.GetComponent<RectTransform>();
             _recipeContent.anchorMin = new Vector2(0, 1);
@@ -214,14 +248,14 @@ namespace Veneer.Vanilla.Replacements
             _recipeContent.pivot = new Vector2(0.5f, 1);
             _recipeContent.anchoredPosition = Vector2.zero;
 
-            var contentLayout = contentGo.AddComponent<VerticalLayoutGroup>();
-            contentLayout.childAlignment = TextAnchor.UpperCenter;
-            contentLayout.childControlWidth = true;
-            contentLayout.childControlHeight = false;
-            contentLayout.childForceExpandWidth = true;
-            contentLayout.childForceExpandHeight = false;
-            contentLayout.spacing = 4f;
-            contentLayout.padding = new RectOffset(4, 4, 4, 4);
+            var gridLayout = contentGo.AddComponent<GridLayoutGroup>();
+            gridLayout.cellSize = new Vector2(140, 120);
+            gridLayout.spacing = new Vector2(12, 12);
+            gridLayout.startCorner = GridLayoutGroup.Corner.UpperLeft;
+            gridLayout.startAxis = GridLayoutGroup.Axis.Horizontal;
+            gridLayout.childAlignment = TextAnchor.UpperCenter;
+            gridLayout.constraint = GridLayoutGroup.Constraint.Flexible;
+            gridLayout.padding = new RectOffset(4, 4, 4, 4);
 
             var contentFitter = contentGo.AddComponent<ContentSizeFitter>();
             contentFitter.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
@@ -230,27 +264,22 @@ namespace Veneer.Vanilla.Replacements
             _recipeScrollRect.content = _recipeContent;
         }
 
-        private void CreateDetailsPanel(RectTransform parent, float topOffset, float leftPercent, float widthPercent)
+        private void CreatePreviewPanel(RectTransform parent, float height)
         {
-            // Use percentage-based anchors so it scales with parent
-            _detailsPanel = CreateUIObject("DetailsPanel", parent);
-            var detailsRect = _detailsPanel.GetComponent<RectTransform>();
-            detailsRect.anchorMin = new Vector2(leftPercent, 0);
-            detailsRect.anchorMax = new Vector2(leftPercent + widthPercent, 1);
-            detailsRect.pivot = new Vector2(0.5f, 0.5f);
-            // Use offsets from anchors
-            detailsRect.offsetMin = new Vector2(6, 0); // left margin, bottom
-            detailsRect.offsetMax = new Vector2(0, -topOffset - 4); // right, top offset
+            var previewGo = CreateUIObject("PreviewPanel", parent);
+            _previewPanel = previewGo.GetComponent<RectTransform>();
+            _previewPanel.anchorMin = new Vector2(0, 0);
+            _previewPanel.anchorMax = new Vector2(1, 0);
+            _previewPanel.pivot = new Vector2(0.5f, 0);
+            _previewPanel.anchoredPosition = Vector2.zero;
+            _previewPanel.sizeDelta = new Vector2(0, height);
 
             // Background
-            var bgImage = _detailsPanel.AddComponent<Image>();
+            var bgImage = previewGo.AddComponent<Image>();
             bgImage.color = VeneerColors.BackgroundLight;
 
-            // Add RectMask2D to clip overflow
-            _detailsPanel.AddComponent<RectMask2D>();
-
-            // Border - stretches with parent
-            var borderGo = CreateUIObject("Border", _detailsPanel.transform);
+            // Border
+            var borderGo = CreateUIObject("Border", previewGo.transform);
             var borderRect = borderGo.GetComponent<RectTransform>();
             borderRect.anchorMin = Vector2.zero;
             borderRect.anchorMax = Vector2.one;
@@ -262,151 +291,171 @@ namespace Veneer.Vanilla.Replacements
             borderImg.type = Image.Type.Sliced;
             borderImg.raycastTarget = false;
 
-            float innerPadding = 12f;
+            float padding = 12f;
 
-            // Item icon (top left)
-            var iconContainer = CreateUIObject("IconContainer", _detailsPanel.transform);
-            var iconContainerRect = iconContainer.GetComponent<RectTransform>();
-            iconContainerRect.anchorMin = new Vector2(0, 1);
-            iconContainerRect.anchorMax = new Vector2(0, 1);
-            iconContainerRect.pivot = new Vector2(0, 1);
-            iconContainerRect.anchoredPosition = new Vector2(innerPadding, -innerPadding);
-            iconContainerRect.sizeDelta = new Vector2(64, 64);
+            // Left side: Icon + Name + Subtitle
+            var iconGo = CreateUIObject("Icon", previewGo.transform);
+            var iconRect = iconGo.GetComponent<RectTransform>();
+            iconRect.anchorMin = new Vector2(0, 1);
+            iconRect.anchorMax = new Vector2(0, 1);
+            iconRect.pivot = new Vector2(0, 1);
+            iconRect.anchoredPosition = new Vector2(padding, -padding);
+            iconRect.sizeDelta = new Vector2(64, 64);
 
-            var iconBg = iconContainer.AddComponent<Image>();
+            var iconBg = iconGo.AddComponent<Image>();
             iconBg.color = VeneerColors.BackgroundDark;
 
-            var iconGo = CreateUIObject("Icon", iconContainer.transform);
-            var iconRect = iconGo.GetComponent<RectTransform>();
-            iconRect.anchorMin = new Vector2(0.1f, 0.1f);
-            iconRect.anchorMax = new Vector2(0.9f, 0.9f);
-            iconRect.offsetMin = Vector2.zero;
-            iconRect.offsetMax = Vector2.zero;
+            var iconInnerGo = CreateUIObject("IconImage", iconGo.transform);
+            var iconInnerRect = iconInnerGo.GetComponent<RectTransform>();
+            iconInnerRect.anchorMin = new Vector2(0.1f, 0.1f);
+            iconInnerRect.anchorMax = new Vector2(0.9f, 0.9f);
+            iconInnerRect.offsetMin = Vector2.zero;
+            iconInnerRect.offsetMax = Vector2.zero;
 
-            _selectedItemIcon = iconGo.AddComponent<Image>();
-            _selectedItemIcon.preserveAspect = true;
+            _previewIcon = iconInnerGo.AddComponent<Image>();
+            _previewIcon.preserveAspect = true;
 
-            // Item name (next to icon) - stretches horizontally
-            var nameGo = CreateUIObject("ItemName", _detailsPanel.transform);
+            // Name (next to icon)
+            var nameGo = CreateUIObject("Name", previewGo.transform);
             var nameRect = nameGo.GetComponent<RectTransform>();
             nameRect.anchorMin = new Vector2(0, 1);
-            nameRect.anchorMax = new Vector2(1, 1);
+            nameRect.anchorMax = new Vector2(0.5f, 1);
             nameRect.pivot = new Vector2(0, 1);
-            nameRect.offsetMin = new Vector2(innerPadding + 72, -innerPadding - 28);
-            nameRect.offsetMax = new Vector2(-innerPadding, -innerPadding);
+            nameRect.offsetMin = new Vector2(padding + 72, -padding - 24);
+            nameRect.offsetMax = new Vector2(0, -padding);
 
-            _selectedItemName = nameGo.AddComponent<VeneerText>();
-            _selectedItemName.Content = "Select a recipe";
-            _selectedItemName.ApplyStyle(TextStyle.Header);
-            _selectedItemName.Alignment = TextAnchor.MiddleLeft;
-            _selectedItemName.TextColor = VeneerColors.Accent;
+            _previewName = nameGo.AddComponent<VeneerText>();
+            _previewName.Content = "Select an item";
+            _previewName.ApplyStyle(TextStyle.Header);
+            _previewName.TextColor = VeneerColors.Accent;
+            _previewName.Alignment = TextAnchor.MiddleLeft;
 
-            // Item description - stretches horizontally
-            var descGo = CreateUIObject("ItemDescription", _detailsPanel.transform);
-            var descRect = descGo.GetComponent<RectTransform>();
-            descRect.anchorMin = new Vector2(0, 1);
-            descRect.anchorMax = new Vector2(1, 1);
-            descRect.pivot = new Vector2(0, 1);
-            descRect.offsetMin = new Vector2(innerPadding + 72, -innerPadding - 68);
-            descRect.offsetMax = new Vector2(-innerPadding, -innerPadding - 32);
+            // Subtitle
+            var subtitleGo = CreateUIObject("Subtitle", previewGo.transform);
+            var subtitleRect = subtitleGo.GetComponent<RectTransform>();
+            subtitleRect.anchorMin = new Vector2(0, 1);
+            subtitleRect.anchorMax = new Vector2(0.5f, 1);
+            subtitleRect.pivot = new Vector2(0, 1);
+            subtitleRect.offsetMin = new Vector2(padding + 72, -padding - 44);
+            subtitleRect.offsetMax = new Vector2(0, -padding - 26);
 
-            _selectedItemDescription = descGo.AddComponent<VeneerText>();
-            _selectedItemDescription.Content = "";
-            _selectedItemDescription.ApplyStyle(TextStyle.Body);
-            _selectedItemDescription.Alignment = TextAnchor.UpperLeft;
+            _previewSubtitle = subtitleGo.AddComponent<VeneerText>();
+            _previewSubtitle.Content = "";
+            _previewSubtitle.ApplyStyle(TextStyle.Caption);
+            _previewSubtitle.Alignment = TextAnchor.MiddleLeft;
 
-            // Item stats (damage, armor, etc)
-            var statsGo = CreateUIObject("ItemStats", _detailsPanel.transform);
+            // Stats (below icon, stretching down to bottom left)
+            var statsGo = CreateUIObject("Stats", previewGo.transform);
             var statsRect = statsGo.GetComponent<RectTransform>();
-            statsRect.anchorMin = new Vector2(0, 1);
-            statsRect.anchorMax = new Vector2(1, 1);
+            statsRect.anchorMin = new Vector2(0, 0);
+            statsRect.anchorMax = new Vector2(0.5f, 1);
             statsRect.pivot = new Vector2(0, 1);
-            statsRect.offsetMin = new Vector2(innerPadding, -innerPadding - 110);
-            statsRect.offsetMax = new Vector2(-innerPadding, -innerPadding - 72);
+            // Start below the icon (icon is 64px + 12px padding from top = 76px down)
+            statsRect.offsetMin = new Vector2(padding, padding);
+            statsRect.offsetMax = new Vector2(-padding, -padding - 80);
 
-            _itemStatsText = statsGo.AddComponent<VeneerText>();
-            _itemStatsText.Content = "";
-            _itemStatsText.ApplyStyle(TextStyle.Value);
-            _itemStatsText.Alignment = TextAnchor.UpperLeft;
-            _itemStatsText.TextColor = VeneerColors.TextGold;
+            _previewStats = statsGo.AddComponent<VeneerText>();
+            _previewStats.Content = "";
+            _previewStats.ApplyStyle(TextStyle.Caption);
+            _previewStats.Alignment = TextAnchor.UpperLeft;
 
-            // Requirements label - stretches horizontally
-            var reqLabelGo = CreateUIObject("RequirementsLabel", _detailsPanel.transform);
+            // Enable wrapping and rich text for stats
+            var statsText = _previewStats.GetComponent<Text>();
+            if (statsText != null)
+            {
+                statsText.horizontalOverflow = HorizontalWrapMode.Wrap;
+                statsText.verticalOverflow = VerticalWrapMode.Overflow;
+                statsText.supportRichText = true;
+            }
+            var statsFitter = _previewStats.GetComponent<ContentSizeFitter>();
+            if (statsFitter != null)
+            {
+                statsFitter.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
+                statsFitter.verticalFit = ContentSizeFitter.FitMode.Unconstrained;
+            }
+
+            // Requirements section (right side)
+            var reqLabelGo = CreateUIObject("RecipeLabel", previewGo.transform);
             var reqLabelRect = reqLabelGo.GetComponent<RectTransform>();
-            reqLabelRect.anchorMin = new Vector2(0, 1);
+            reqLabelRect.anchorMin = new Vector2(0.5f, 1);
             reqLabelRect.anchorMax = new Vector2(1, 1);
             reqLabelRect.pivot = new Vector2(0, 1);
-            reqLabelRect.offsetMin = new Vector2(innerPadding, -innerPadding - 135);
-            reqLabelRect.offsetMax = new Vector2(-innerPadding, -innerPadding - 115);
+            reqLabelRect.offsetMin = new Vector2(padding, -padding - 20);
+            reqLabelRect.offsetMax = new Vector2(-padding, -padding);
 
             var reqLabel = reqLabelGo.AddComponent<VeneerText>();
-            reqLabel.Content = "Requirements";
+            reqLabel.Content = "Recipe";
             reqLabel.ApplyStyle(TextStyle.Subheader);
             reqLabel.Alignment = TextAnchor.MiddleLeft;
 
-            // Requirements content area - stretches both ways
-            var reqContainer = CreateUIObject("RequirementsContainer", _detailsPanel.transform);
-            var reqContainerRect = reqContainer.GetComponent<RectTransform>();
-            reqContainerRect.anchorMin = new Vector2(0, 0);
-            reqContainerRect.anchorMax = new Vector2(1, 1);
-            reqContainerRect.pivot = new Vector2(0.5f, 0.5f);
-            reqContainerRect.offsetMin = new Vector2(innerPadding, 70); // Bottom padding for button/station
-            reqContainerRect.offsetMax = new Vector2(-innerPadding, -innerPadding - 140); // Top offset
+            // Requirements container
+            var reqContainerGo = CreateUIObject("Requirements", previewGo.transform);
+            _requirementsContainer = reqContainerGo.GetComponent<RectTransform>();
+            _requirementsContainer.anchorMin = new Vector2(0.5f, 0);
+            _requirementsContainer.anchorMax = new Vector2(1, 1);
+            _requirementsContainer.pivot = new Vector2(0.5f, 0.5f);
+            _requirementsContainer.offsetMin = new Vector2(padding, padding + 45);
+            _requirementsContainer.offsetMax = new Vector2(-padding, -padding - 24);
 
-            _requirementsContent = reqContainerRect;
-
-            // Use VerticalLayoutGroup for requirements - shows icon + name for each
-            var reqLayout = reqContainer.AddComponent<VerticalLayoutGroup>();
+            var reqLayout = reqContainerGo.AddComponent<VerticalLayoutGroup>();
             reqLayout.childAlignment = TextAnchor.UpperLeft;
             reqLayout.childControlWidth = true;
             reqLayout.childControlHeight = false;
             reqLayout.childForceExpandWidth = true;
             reqLayout.childForceExpandHeight = false;
-            reqLayout.spacing = 6f;
-            reqLayout.padding = new RectOffset(4, 4, 4, 4);
+            reqLayout.spacing = 4f;
 
-            // Station text - at bottom, stretches horizontally
-            var stationGo = CreateUIObject("StationText", _detailsPanel.transform);
-            var stationRect = stationGo.GetComponent<RectTransform>();
-            stationRect.anchorMin = new Vector2(0, 0);
-            stationRect.anchorMax = new Vector2(1, 0);
-            stationRect.pivot = new Vector2(0.5f, 0);
-            stationRect.offsetMin = new Vector2(innerPadding, innerPadding + 45);
-            stationRect.offsetMax = new Vector2(-innerPadding, innerPadding + 65);
-
-            _stationText = stationGo.AddComponent<VeneerText>();
-            _stationText.Content = "";
-            _stationText.ApplyStyle(TextStyle.Caption);
-            _stationText.Alignment = TextAnchor.MiddleCenter;
-
-            // Craft button - anchored to bottom center
-            _craftButton = VeneerButton.Create(_detailsPanel.transform, "Craft", OnCraftClicked);
+            // Craft button (bottom right)
+            _craftButton = VeneerButton.Create(previewGo.transform, "Craft", OnCraftClicked);
             _craftButton.SetButtonSize(ButtonSize.Large);
             _craftButton.SetStyle(ButtonStyle.Primary);
             var craftRect = _craftButton.RectTransform;
-            craftRect.anchorMin = new Vector2(0.5f, 0);
-            craftRect.anchorMax = new Vector2(0.5f, 0);
-            craftRect.pivot = new Vector2(0.5f, 0);
-            craftRect.anchoredPosition = new Vector2(0, innerPadding);
-            craftRect.sizeDelta = new Vector2(150, 36);
+            craftRect.anchorMin = new Vector2(1, 0);
+            craftRect.anchorMax = new Vector2(1, 0);
+            craftRect.pivot = new Vector2(1, 0);
+            craftRect.anchoredPosition = new Vector2(-padding, padding);
+            craftRect.sizeDelta = new Vector2(120, 36);
         }
 
-        private void FilterByCategory(string category)
+        #region Event Handlers
+
+        private void OnSearchChanged(string query)
         {
-            _currentCategory = category;
-
-            // Update button styles
-            foreach (var kvp in _categoryButtons)
-            {
-                kvp.Value.SetStyle(kvp.Key == category ? ButtonStyle.Primary : ButtonStyle.Default);
-            }
-
+            _searchQuery = query.ToLowerInvariant();
             UpdateRecipeList();
         }
 
-        /// <summary>
-        /// Shows the crafting panel.
-        /// </summary>
+        private void OnSortNameClicked()
+        {
+            if (_sortMode == SortMode.Name)
+            {
+                _sortMode = SortMode.None;
+                _sortNameButton.SetToggledSilent(false);
+            }
+            else
+            {
+                _sortMode = SortMode.Name;
+                _sortNameButton.SetToggledSilent(true);
+            }
+            UpdateRecipeList();
+        }
+
+        private void OnCraftableOnlyToggled(bool toggled)
+        {
+            _craftableOnly = toggled;
+            UpdateRecipeList();
+        }
+
+        private void OnCategoryChanged(string category)
+        {
+            _currentCategory = category;
+            UpdateRecipeList();
+        }
+
+        #endregion
+
+        #region Show/Hide
+
         public override void Show()
         {
             _player = Player.m_localPlayer;
@@ -415,12 +464,9 @@ namespace Veneer.Vanilla.Replacements
             _currentStation = _player.GetCurrentCraftingStation();
             UpdateTitle();
             UpdateRecipeList();
-            base.Show(); // Fire OnShow event and set visibility
+            base.Show();
         }
 
-        /// <summary>
-        /// Shows the crafting panel with a specific station.
-        /// </summary>
         public void Show(CraftingStation station)
         {
             _player = Player.m_localPlayer;
@@ -429,15 +475,12 @@ namespace Veneer.Vanilla.Replacements
             _currentStation = station;
             UpdateTitle();
             UpdateRecipeList();
-            base.Show(); // Fire OnShow event and set visibility
+            base.Show();
         }
 
-        /// <summary>
-        /// Hides the crafting panel.
-        /// </summary>
         public override void Hide()
         {
-            base.Hide(); // Fire OnHide event and set visibility
+            base.Hide();
         }
 
         private void UpdateTitle()
@@ -453,29 +496,26 @@ namespace Veneer.Vanilla.Replacements
             }
         }
 
+        #endregion
+
+        #region Recipe List
+
         private void UpdateRecipeList()
         {
             if (_player == null) return;
 
             // Clear existing cards
-            foreach (var card in _recipeCards)
-            {
-                Destroy(card.Root);
-            }
-            _recipeCards.Clear();
+            ClearRecipeCards();
 
             // Get available recipes
             _availableRecipes.Clear();
 
-            // Iterate through all recipes and check if player knows them
             foreach (var recipe in ObjectDB.instance.m_recipes)
             {
                 if (recipe == null || recipe.m_item == null) continue;
-
-                // Check if player knows this recipe
                 if (!_player.IsRecipeKnown(recipe.m_item.m_itemData.m_shared.m_name)) continue;
 
-                // Check if we can craft at current station (or hand-craft)
+                // Station filter
                 if (_currentStation != null)
                 {
                     if (recipe.m_craftingStation != null &&
@@ -484,276 +524,288 @@ namespace Veneer.Vanilla.Replacements
                 }
                 else
                 {
-                    // Hand crafting - only recipes with no station requirement
                     if (recipe.m_craftingStation != null) continue;
                 }
 
-                // Filter by category
+                // Category filter
                 if (_currentCategory != "All" && !MatchesCategory(recipe, _currentCategory))
+                    continue;
+
+                // Search filter
+                if (!string.IsNullOrEmpty(_searchQuery))
+                {
+                    string itemName = Localization.instance.Localize(recipe.m_item.m_itemData.m_shared.m_name).ToLowerInvariant();
+                    if (!itemName.Contains(_searchQuery))
+                        continue;
+                }
+
+                // Craftable filter
+                if (_craftableOnly && !CanCraftRecipe(recipe))
                     continue;
 
                 _availableRecipes.Add(recipe);
             }
 
-            // Sort by name
+            // Sort - always alphabetical, toggle just controls whether it's applied explicitly
             _availableRecipes = _availableRecipes.OrderBy(r =>
                 Localization.instance.Localize(r.m_item.m_itemData.m_shared.m_name)).ToList();
 
             // Create cards
             foreach (var recipe in _availableRecipes)
             {
-                var card = CreateRecipeCard(recipe);
-                _recipeCards.Add(card);
+                CreateRecipeCard(recipe);
             }
 
-            // Select first recipe if none selected
+            // Auto-select first
             if (_selectedRecipe == null && _availableRecipes.Count > 0)
             {
                 SelectRecipe(_availableRecipes[0]);
             }
-            else if (_selectedRecipe != null)
+            else if (_selectedRecipe != null && _availableRecipes.Contains(_selectedRecipe))
             {
-                UpdateDetailsPanel();
+                UpdatePreviewPanel();
+                UpdateCardSelection();
+            }
+            else if (_availableRecipes.Count > 0)
+            {
+                SelectRecipe(_availableRecipes[0]);
+            }
+            else
+            {
+                _selectedRecipe = null;
+                UpdatePreviewPanel();
             }
         }
 
-        private bool MatchesCategory(Recipe recipe, string category)
+        private void ClearRecipeCards()
         {
-            if (recipe.m_item == null) return false;
-
-            var itemData = recipe.m_item.m_itemData;
-            var itemType = itemData.m_shared.m_itemType;
-
-            return category switch
+            foreach (var card in _recipeCards)
             {
-                "Weapons" => itemType == ItemDrop.ItemData.ItemType.OneHandedWeapon ||
-                             itemType == ItemDrop.ItemData.ItemType.TwoHandedWeapon ||
-                             itemType == ItemDrop.ItemData.ItemType.TwoHandedWeaponLeft ||
-                             itemType == ItemDrop.ItemData.ItemType.Bow,
-                "Armor" => itemType == ItemDrop.ItemData.ItemType.Helmet ||
-                           itemType == ItemDrop.ItemData.ItemType.Chest ||
-                           itemType == ItemDrop.ItemData.ItemType.Legs ||
-                           itemType == ItemDrop.ItemData.ItemType.Shoulder ||
-                           itemType == ItemDrop.ItemData.ItemType.Shield,
-                "Tools" => itemType == ItemDrop.ItemData.ItemType.Tool ||
-                           itemType == ItemDrop.ItemData.ItemType.Torch,
-                "Building" => itemType == ItemDrop.ItemData.ItemType.Material &&
-                              itemData.m_shared.m_name.Contains("$item_") == false,
-                "Food" => itemType == ItemDrop.ItemData.ItemType.Consumable,
-                "Misc" => itemType == ItemDrop.ItemData.ItemType.Material ||
-                          itemType == ItemDrop.ItemData.ItemType.Ammo ||
-                          itemType == ItemDrop.ItemData.ItemType.Utility,
-                _ => true
-            };
+                if (card != null)
+                    Destroy(card.gameObject);
+            }
+            _recipeCards.Clear();
         }
 
-        private RecipeCard CreateRecipeCard(Recipe recipe)
+        private void CreateRecipeCard(Recipe recipe)
         {
-            var cardGo = CreateUIObject("RecipeCard", _recipeContent);
+            if (_recipeContent == null) return;
 
-            // LayoutElement for vertical layout group
-            var layoutElement = cardGo.AddComponent<LayoutElement>();
-            layoutElement.preferredHeight = 52f;
-            layoutElement.flexibleWidth = 1f;
+            var card = VeneerCard.Create(_recipeContent, 140f, 120f);
+            card.UserData = recipe;
 
-            // Card background
-            var bgImage = cardGo.AddComponent<Image>();
-            bgImage.color = VeneerColors.BackgroundLight;
+            var itemData = recipe.m_item.m_itemData;
+            card.Icon = itemData.m_shared.m_icons[0];
+            card.Title = Localization.instance.Localize(itemData.m_shared.m_name);
 
-            // Make clickable
-            var button = cardGo.AddComponent<Button>();
-            button.transition = Selectable.Transition.ColorTint;
-            var colors = button.colors;
-            colors.normalColor = VeneerColors.BackgroundLight;
-            colors.highlightedColor = VeneerColors.BackgroundLight * 1.3f;
-            colors.pressedColor = VeneerColors.BackgroundLight * 0.8f;
-            colors.selectedColor = VeneerColors.Accent * 0.5f;
-            button.colors = colors;
+            // Subtitle: category + craft time
+            string category = GetCategoryName(recipe);
+            card.Subtitle = $"{category}";
 
-            var capturedRecipe = recipe;
-            button.onClick.AddListener(() => SelectRecipe(capturedRecipe));
-
-            // Icon
-            var iconGo = CreateUIObject("Icon", cardGo.transform);
-            var iconRect = iconGo.GetComponent<RectTransform>();
-            iconRect.anchorMin = new Vector2(0, 0.5f);
-            iconRect.anchorMax = new Vector2(0, 0.5f);
-            iconRect.pivot = new Vector2(0, 0.5f);
-            iconRect.anchoredPosition = new Vector2(6, 0);
-            iconRect.sizeDelta = new Vector2(40, 40);
-
-            var iconImage = iconGo.AddComponent<Image>();
-            iconImage.sprite = recipe.m_item.m_itemData.m_shared.m_icons[0];
-            iconImage.preserveAspect = true;
-
-            // Name
-            var nameGo = CreateUIObject("Name", cardGo.transform);
-            var nameRect = nameGo.GetComponent<RectTransform>();
-            nameRect.anchorMin = new Vector2(0, 0.5f);
-            nameRect.anchorMax = new Vector2(1, 0.5f);
-            nameRect.pivot = new Vector2(0, 0.5f);
-            nameRect.anchoredPosition = new Vector2(52, 5);
-            nameRect.sizeDelta = new Vector2(-60, 20);
-
-            var nameText = nameGo.AddComponent<Text>();
-            nameText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
-            nameText.fontSize = VeneerConfig.GetScaledFontSize(12);
-            nameText.color = VeneerColors.Text;
-            nameText.alignment = TextAnchor.MiddleLeft;
-            nameText.text = Localization.instance.Localize(recipe.m_item.m_itemData.m_shared.m_name);
-
-            // Craftable indicator
+            // Lock state based on craftability
             bool canCraft = CanCraftRecipe(recipe);
-            var indicatorGo = CreateUIObject("Indicator", cardGo.transform);
-            var indicatorRect = indicatorGo.GetComponent<RectTransform>();
-            indicatorRect.anchorMin = new Vector2(0, 0.5f);
-            indicatorRect.anchorMax = new Vector2(1, 0.5f);
-            indicatorRect.pivot = new Vector2(0, 0.5f);
-            indicatorRect.anchoredPosition = new Vector2(52, -10);
-            indicatorRect.sizeDelta = new Vector2(-60, 16);
+            card.IsLocked = !canCraft;
 
-            var indicatorText = indicatorGo.AddComponent<Text>();
-            indicatorText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
-            indicatorText.fontSize = VeneerConfig.GetScaledFontSize(10);
-            indicatorText.color = canCraft ? VeneerColors.Success : VeneerColors.TextMuted;
-            indicatorText.alignment = TextAnchor.MiddleLeft;
-            indicatorText.text = canCraft ? "Ready to craft" : "Missing materials";
+            // Click handler
+            var capturedRecipe = recipe;
+            card.OnClick += () => SelectRecipe(capturedRecipe);
 
-            return new RecipeCard
-            {
-                Root = cardGo,
-                Recipe = recipe,
-                Icon = iconImage,
-                NameText = nameText,
-                IndicatorText = indicatorText,
-                Button = button
-            };
+            // Selection state
+            card.IsSelected = recipe == _selectedRecipe;
+
+            _recipeCards.Add(card);
         }
 
         private void SelectRecipe(Recipe recipe)
         {
             _selectedRecipe = recipe;
-
-            // Update card visuals
-            foreach (var card in _recipeCards)
-            {
-                var isSelected = card.Recipe == recipe;
-                var bgImage = card.Root.GetComponent<Image>();
-                if (bgImage != null)
-                {
-                    bgImage.color = isSelected ? VeneerColors.Accent * 0.3f : VeneerColors.BackgroundLight;
-                }
-            }
-
-            UpdateDetailsPanel();
+            UpdateCardSelection();
+            UpdatePreviewPanel();
         }
 
-        private void UpdateDetailsPanel()
+        private void UpdateCardSelection()
         {
+            foreach (var card in _recipeCards)
+            {
+                if (card != null && card.UserData is Recipe cardRecipe)
+                {
+                    card.IsSelected = cardRecipe == _selectedRecipe;
+                }
+            }
+        }
+
+        private string GetCategoryName(Recipe recipe)
+        {
+            if (recipe.m_item == null) return "Misc";
+
+            var itemType = recipe.m_item.m_itemData.m_shared.m_itemType;
+
+            if (itemType == ItemDrop.ItemData.ItemType.OneHandedWeapon ||
+                itemType == ItemDrop.ItemData.ItemType.TwoHandedWeapon ||
+                itemType == ItemDrop.ItemData.ItemType.TwoHandedWeaponLeft ||
+                itemType == ItemDrop.ItemData.ItemType.Bow)
+                return "Weapons";
+
+            if (itemType == ItemDrop.ItemData.ItemType.Helmet ||
+                itemType == ItemDrop.ItemData.ItemType.Chest ||
+                itemType == ItemDrop.ItemData.ItemType.Legs ||
+                itemType == ItemDrop.ItemData.ItemType.Shoulder ||
+                itemType == ItemDrop.ItemData.ItemType.Shield)
+                return "Armor";
+
+            if (itemType == ItemDrop.ItemData.ItemType.Tool ||
+                itemType == ItemDrop.ItemData.ItemType.Torch)
+                return "Tools";
+
+            if (itemType == ItemDrop.ItemData.ItemType.Consumable)
+                return "Food";
+
+            return "Misc";
+        }
+
+        private bool MatchesCategory(Recipe recipe, string category)
+        {
+            return GetCategoryName(recipe) == category;
+        }
+
+        #endregion
+
+        #region Preview Panel
+
+        private void UpdatePreviewPanel()
+        {
+            ClearRequirements();
+
             if (_selectedRecipe == null || _selectedRecipe.m_item == null)
             {
-                _selectedItemName.Content = "Select a recipe";
-                _selectedItemDescription.Content = "";
-                if (_itemStatsText != null) _itemStatsText.Content = "";
-                _selectedItemIcon.sprite = null;
+                _previewIcon.sprite = null;
+                _previewName.Content = "Select an item";
+                _previewSubtitle.Content = "";
+                _previewStats.Content = "";
                 _craftButton.Interactable = false;
-                ClearRequirements();
                 return;
             }
 
             var itemData = _selectedRecipe.m_item.m_itemData;
             var shared = itemData.m_shared;
 
-            _selectedItemIcon.sprite = shared.m_icons[0];
-            _selectedItemName.Content = Localization.instance.Localize(shared.m_name);
-            _selectedItemDescription.Content = Localization.instance.Localize(shared.m_description);
+            _previewIcon.sprite = shared.m_icons[0];
+            _previewName.Content = Localization.instance.Localize(shared.m_name);
+            _previewSubtitle.Content = $"{GetCategoryName(_selectedRecipe)} • Q{_selectedRecipe.m_amount}";
 
-            // Build stats string based on item type
-            string stats = BuildItemStats(shared);
-            if (_itemStatsText != null)
-            {
-                _itemStatsText.Content = stats;
-            }
+            // Stats
+            _previewStats.Content = BuildItemStats(shared);
 
-            // Station requirement
-            if (_selectedRecipe.m_craftingStation != null)
-            {
-                string stationName = Localization.instance.Localize(_selectedRecipe.m_craftingStation.m_name);
-                int minLevel = _selectedRecipe.m_minStationLevel;
-                _stationText.Content = minLevel > 1 ? $"Requires {stationName} (Level {minLevel})" : $"Requires {stationName}";
-            }
-            else
-            {
-                _stationText.Content = "Can be crafted anywhere";
-            }
-
-            // Update requirements
+            // Requirements
             UpdateRequirements();
 
-            // Update craft button
+            // Craft button
             bool canCraft = CanCraftRecipe(_selectedRecipe);
             _craftButton.Interactable = canCraft;
+            _craftButton.Label = canCraft ? "Craft" : "Missing";
             _craftButton.SetStyle(canCraft ? ButtonStyle.Primary : ButtonStyle.Default);
         }
 
         private string BuildItemStats(ItemDrop.ItemData.SharedData shared)
         {
-            var statParts = new List<string>();
+            var lines = new List<string>();
 
-            // Damage stats for weapons
-            if (shared.m_damages.GetTotalDamage() > 0)
+            // Offensive stats
+            var offensive = new List<string>();
+            var damages = shared.m_damages;
+
+            if (damages.m_damage > 0) offensive.Add($"Physical: {damages.m_damage:F0}");
+            if (damages.m_slash > 0) offensive.Add($"Slash: {damages.m_slash:F0}");
+            if (damages.m_pierce > 0) offensive.Add($"Pierce: {damages.m_pierce:F0}");
+            if (damages.m_blunt > 0) offensive.Add($"Blunt: {damages.m_blunt:F0}");
+            if (damages.m_fire > 0) offensive.Add($"Fire: {damages.m_fire:F0}");
+            if (damages.m_frost > 0) offensive.Add($"Frost: {damages.m_frost:F0}");
+            if (damages.m_lightning > 0) offensive.Add($"Lightning: {damages.m_lightning:F0}");
+            if (damages.m_poison > 0) offensive.Add($"Poison: {damages.m_poison:F0}");
+            if (damages.m_spirit > 0) offensive.Add($"Spirit: {damages.m_spirit:F0}");
+
+            if (shared.m_attackForce > 0) offensive.Add($"Knockback: {shared.m_attackForce:F0}");
+            if (shared.m_backstabBonus > 1) offensive.Add($"Backstab: {shared.m_backstabBonus:F1}x");
+
+            if (offensive.Count > 0)
             {
-                var dmg = shared.m_damages;
-                if (dmg.m_damage > 0) statParts.Add($"Damage: {dmg.m_damage}");
-                if (dmg.m_slash > 0) statParts.Add($"Slash: {dmg.m_slash}");
-                if (dmg.m_pierce > 0) statParts.Add($"Pierce: {dmg.m_pierce}");
-                if (dmg.m_blunt > 0) statParts.Add($"Blunt: {dmg.m_blunt}");
-                if (dmg.m_fire > 0) statParts.Add($"Fire: {dmg.m_fire}");
-                if (dmg.m_frost > 0) statParts.Add($"Frost: {dmg.m_frost}");
-                if (dmg.m_lightning > 0) statParts.Add($"Lightning: {dmg.m_lightning}");
-                if (dmg.m_poison > 0) statParts.Add($"Poison: {dmg.m_poison}");
-                if (dmg.m_spirit > 0) statParts.Add($"Spirit: {dmg.m_spirit}");
+                lines.Add("<color=#C9A227>Offensive</color>");
+                lines.Add(string.Join(", ", offensive));
             }
 
-            // Armor for armor pieces
-            if (shared.m_armor > 0)
+            // Defensive stats
+            var defensive = new List<string>();
+
+            if (shared.m_armor > 0) defensive.Add($"Armor: {shared.m_armor:F0}");
+            if (shared.m_blockPower > 0) defensive.Add($"Block: {shared.m_blockPower:F0}");
+            if (shared.m_deflectionForce > 0) defensive.Add($"Parry: {shared.m_deflectionForce:F0}");
+            if (shared.m_timedBlockBonus > 1) defensive.Add($"Parry Bonus: {shared.m_timedBlockBonus:F1}x");
+
+            // Resistances from armor modifier (if any)
+            if (shared.m_damageModifiers != null && shared.m_damageModifiers.Count > 0)
             {
-                statParts.Add($"Armor: {shared.m_armor}");
+                foreach (var mod in shared.m_damageModifiers)
+                {
+                    string modText = mod.m_modifier switch
+                    {
+                        HitData.DamageModifier.Resistant => "Resist",
+                        HitData.DamageModifier.VeryResistant => "V.Resist",
+                        HitData.DamageModifier.Weak => "Weak",
+                        HitData.DamageModifier.VeryWeak => "V.Weak",
+                        HitData.DamageModifier.Immune => "Immune",
+                        _ => null
+                    };
+
+                    if (modText != null)
+                    {
+                        defensive.Add($"{mod.m_type}: {modText}");
+                    }
+                }
             }
 
-            // Block power for shields
-            if (shared.m_blockPower > 0)
+            if (defensive.Count > 0)
             {
-                statParts.Add($"Block: {shared.m_blockPower}");
+                if (lines.Count > 0) lines.Add("");
+                lines.Add("<color=#C9A227>Defensive</color>");
+                lines.Add(string.Join(", ", defensive));
             }
 
-            // Durability
-            if (shared.m_maxDurability > 0)
+            // Utility/Other stats
+            var utility = new List<string>();
+
+            if (shared.m_durabilityPerLevel > 0) utility.Add($"Durability: {shared.m_maxDurability:F0}");
+            if (shared.m_movementModifier != 0) utility.Add($"Movement: {shared.m_movementModifier * 100:F0}%");
+            if (shared.m_eitrRegenModifier != 0) utility.Add($"Eitr Regen: {shared.m_eitrRegenModifier * 100:+0;-0}%");
+
+            // Food stats
+            if (shared.m_food > 0) utility.Add($"Health: +{shared.m_food:F0}");
+            if (shared.m_foodStamina > 0) utility.Add($"Stamina: +{shared.m_foodStamina:F0}");
+            if (shared.m_foodEitr > 0) utility.Add($"Eitr: +{shared.m_foodEitr:F0}");
+            if (shared.m_foodBurnTime > 0) utility.Add($"Duration: {shared.m_foodBurnTime / 60:F0}m");
+            if (shared.m_foodRegen > 0) utility.Add($"Regen: {shared.m_foodRegen:F1}/s");
+
+            if (utility.Count > 0)
             {
-                statParts.Add($"Durability: {shared.m_maxDurability}");
+                if (lines.Count > 0) lines.Add("");
+                lines.Add("<color=#C9A227>Stats</color>");
+                lines.Add(string.Join(", ", utility));
             }
 
-            // Weight
-            if (shared.m_weight > 0)
-            {
-                statParts.Add($"Weight: {shared.m_weight:F1}");
-            }
-
-            return string.Join("  |  ", statParts);
+            return string.Join("\n", lines);
         }
 
         private void ClearRequirements()
         {
-            foreach (Transform child in _requirementsContent)
+            foreach (var row in _requirementRows)
             {
-                Destroy(child.gameObject);
+                if (row != null)
+                    Destroy(row.gameObject);
             }
+            _requirementRows.Clear();
         }
 
         private void UpdateRequirements()
         {
-            ClearRequirements();
-
             if (_selectedRecipe == null || _player == null) return;
 
             var inventory = _player.GetInventory();
@@ -762,82 +814,27 @@ namespace Veneer.Vanilla.Replacements
             {
                 if (req.m_resItem == null) continue;
 
-                CreateRequirementSlot(req, inventory);
+                var row = VeneerRequirementRow.Create(_requirementsContainer);
+                var rowLE = row.gameObject.AddComponent<LayoutElement>();
+                rowLE.preferredHeight = 28f;
+
+                int have = inventory.CountItems(req.m_resItem.m_itemData.m_shared.m_name);
+                int need = req.m_amount;
+
+                row.SetRequirement(
+                    req.m_resItem.m_itemData.m_shared.m_icons[0],
+                    Localization.instance.Localize(req.m_resItem.m_itemData.m_shared.m_name),
+                    have,
+                    need
+                );
+
+                _requirementRows.Add(row);
             }
         }
 
-        private void CreateRequirementSlot(Piece.Requirement req, Inventory inventory)
-        {
-            // Horizontal layout: [Icon] [Material Name] [Count]
-            var slotGo = CreateUIObject("RequirementSlot", _requirementsContent);
+        #endregion
 
-            // LayoutElement for vertical layout group
-            var layoutElement = slotGo.AddComponent<LayoutElement>();
-            layoutElement.preferredHeight = 32f;
-
-            // Background
-            var bgImage = slotGo.AddComponent<Image>();
-            bgImage.color = VeneerColors.BackgroundDark;
-
-            // Horizontal layout
-            var layout = slotGo.AddComponent<HorizontalLayoutGroup>();
-            layout.childAlignment = TextAnchor.MiddleLeft;
-            layout.childControlWidth = false;
-            layout.childControlHeight = true;
-            layout.childForceExpandWidth = false;
-            layout.childForceExpandHeight = true;
-            layout.spacing = 8f;
-            layout.padding = new RectOffset(6, 6, 4, 4);
-
-            // Icon
-            var iconGo = CreateUIObject("Icon", slotGo.transform);
-            var iconLE = iconGo.AddComponent<LayoutElement>();
-            iconLE.preferredWidth = 24f;
-            iconLE.preferredHeight = 24f;
-
-            var iconImage = iconGo.AddComponent<Image>();
-            iconImage.sprite = req.m_resItem.m_itemData.m_shared.m_icons[0];
-            iconImage.preserveAspect = true;
-
-            // Material name
-            string matName = Localization.instance.Localize(req.m_resItem.m_itemData.m_shared.m_name);
-            var nameGo = CreateUIObject("Name", slotGo.transform);
-            var nameLE = nameGo.AddComponent<LayoutElement>();
-            nameLE.flexibleWidth = 1f;
-
-            var nameText = nameGo.AddComponent<Text>();
-            nameText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
-            nameText.fontSize = VeneerConfig.GetScaledFontSize(12);
-            nameText.color = VeneerColors.Text;
-            nameText.alignment = TextAnchor.MiddleLeft;
-            nameText.text = matName;
-
-            // Count text (have/need)
-            int have = inventory.CountItems(req.m_resItem.m_itemData.m_shared.m_name);
-            int need = req.m_amount;
-            bool hasEnough = have >= need;
-
-            var countGo = CreateUIObject("Count", slotGo.transform);
-            var countLE = countGo.AddComponent<LayoutElement>();
-            countLE.preferredWidth = 60f;
-
-            var countText = countGo.AddComponent<Text>();
-            countText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
-            countText.fontSize = VeneerConfig.GetScaledFontSize(12);
-            countText.fontStyle = FontStyle.Bold;
-            countText.color = hasEnough ? VeneerColors.Success : VeneerColors.Error;
-            countText.alignment = TextAnchor.MiddleRight;
-            countText.text = $"{have}/{need}";
-
-            // Left border color indicator
-            var indicatorGo = CreateUIObject("Indicator", slotGo.transform);
-            indicatorGo.transform.SetAsFirstSibling(); // Move to front
-            var indicatorLE = indicatorGo.AddComponent<LayoutElement>();
-            indicatorLE.preferredWidth = 4f;
-
-            var indicatorImg = indicatorGo.AddComponent<Image>();
-            indicatorImg.color = hasEnough ? VeneerColors.Success : VeneerColors.Error;
-        }
+        #region Crafting
 
         private bool CanCraftRecipe(Recipe recipe)
         {
@@ -869,7 +866,6 @@ namespace Veneer.Vanilla.Replacements
             if (_selectedRecipe == null || _player == null || !CanCraftRecipe(_selectedRecipe))
                 return;
 
-            // Attempt to craft
             var inventory = _player.GetInventory();
 
             // Remove resources
@@ -886,36 +882,16 @@ namespace Veneer.Vanilla.Replacements
 
             if (inventory.AddItem(craftedItem))
             {
-                // Play craft effect
                 _player.Message(MessageHud.MessageType.Center,
                     $"Crafted {Localization.instance.Localize(craftedItem.m_shared.m_name)}");
 
-                // Raise skill if applicable
                 _player.RaiseSkill(Skills.SkillType.All, 1f);
             }
 
             // Refresh UI
             UpdateRecipeList();
-            UpdateDetailsPanel();
         }
 
-        private void Update()
-        {
-            // Refresh craftable status periodically
-            if (_player != null && gameObject.activeSelf)
-            {
-                // Could add periodic refresh here if needed
-            }
-        }
-
-        private class RecipeCard
-        {
-            public GameObject Root;
-            public Recipe Recipe;
-            public Image Icon;
-            public Text NameText;
-            public Text IndicatorText;
-            public Button Button;
-        }
+        #endregion
     }
 }
