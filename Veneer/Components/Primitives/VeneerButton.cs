@@ -203,9 +203,9 @@ namespace Veneer.Components.Primitives
 
             if (!interactable)
             {
-                bgColor = VeneerColors.ButtonDisabled;
+                bgColor = VeneerColors.BackgroundDark;
                 borderColor = VeneerColors.BorderDark;
-                textColor = VeneerColors.TextDark;
+                textColor = VeneerColors.TextMuted;
             }
             else if (_isPressed)
             {

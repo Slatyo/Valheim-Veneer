@@ -85,7 +85,8 @@ namespace Veneer.Components.Primitives
         {
             var go = CreateUIObject(name, parent);
             var text = go.AddComponent<VeneerText>();
-            text.Initialize(content);
+            // Awake already initialized, just set the content
+            text.Content = content;
             return text;
         }
 
@@ -137,6 +138,16 @@ namespace Veneer.Components.Primitives
             var text = Create(parent, content, name);
             text.ApplyStyle(TextStyle.Value);
             return text;
+        }
+
+        protected override void Awake()
+        {
+            base.Awake();
+            // Auto-initialize if added via AddComponent instead of factory
+            if (_text == null)
+            {
+                Initialize("");
+            }
         }
 
         private void Initialize(string content)
