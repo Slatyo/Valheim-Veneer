@@ -5,6 +5,7 @@ using System.Reflection;
 using UnityEngine;
 using UnityEngine.UI;
 using Veneer.Components.Base;
+using Veneer.Components.Composite;
 using Veneer.Components.Primitives;
 using Veneer.Core;
 using Veneer.Grid;
@@ -43,7 +44,7 @@ namespace Veneer.Vanilla.Replacements
 
         // Category filter
         private string _currentCategory = "All";
-        private Dictionary<string, VeneerButton> _categoryButtons = new Dictionary<string, VeneerButton>();
+        private VeneerTabBar _tabBar;
 
         /// <summary>
         /// Creates the compendium panel.
@@ -142,40 +143,16 @@ namespace Veneer.Vanilla.Replacements
 
         private void CreateCategoryBar(RectTransform parent, float height)
         {
-            var categoryBar = CreateUIObject("CategoryBar", parent);
-            var categoryRect = categoryBar.GetComponent<RectTransform>();
-            categoryRect.anchorMin = new Vector2(0, 1);
-            categoryRect.anchorMax = new Vector2(1, 1);
-            categoryRect.pivot = new Vector2(0.5f, 1);
-            categoryRect.anchoredPosition = Vector2.zero;
-            categoryRect.sizeDelta = new Vector2(0, height);
-
-            var layout = categoryBar.AddComponent<HorizontalLayoutGroup>();
-            layout.childAlignment = TextAnchor.MiddleLeft;
-            layout.childControlWidth = false;
-            layout.childControlHeight = true;
-            layout.childForceExpandWidth = false;
-            layout.childForceExpandHeight = true;
-            layout.spacing = 4f;
-            layout.padding = new RectOffset(0, 0, 2, 2);
-
-            string[] categories = { "All", "Lore", "Runestones", "Tutorials", "Biomes" };
-            float[] widths = { 40f, 45f, 80f, 70f, 55f };
-
-            for (int i = 0; i < categories.Length; i++)
-            {
-                var cat = categories[i];
-                var btn = VeneerButton.Create(categoryBar.transform, cat, () => FilterByCategory(cat));
-                btn.SetButtonSize(ButtonSize.Small);
-                var le = btn.gameObject.AddComponent<LayoutElement>();
-                le.preferredWidth = widths[i];
-                _categoryButtons[cat] = btn;
-            }
-
-            if (_categoryButtons.TryGetValue("All", out var allBtn))
-            {
-                allBtn.SetStyle(ButtonStyle.Primary);
-            }
+            _tabBar = VeneerTabBar.Create(parent, height);
+            _tabBar.AddTabs(
+                ("All", "All", 45f),
+                ("Lore", "Lore", 50f),
+                ("Runestones", "Runestones", 85f),
+                ("Tutorials", "Tutorials", 75f),
+                ("Biomes", "Biomes", 60f)
+            );
+            _tabBar.OnTabSelected += FilterByCategory;
+            _tabBar.SelectTab("All");
         }
 
         private void CreateEntryList(RectTransform parent, float topOffset, float widthPercent)
@@ -190,9 +167,6 @@ namespace Veneer.Vanilla.Replacements
 
             var bgImage = _listContainer.gameObject.AddComponent<Image>();
             bgImage.color = VeneerColors.BackgroundDark;
-
-            // Add RectMask2D to clip overflow
-            _listContainer.gameObject.AddComponent<RectMask2D>();
 
             // Scroll view - stretches to fill container
             var scrollGo = CreateUIObject("ScrollView", _listContainer);
@@ -216,11 +190,13 @@ namespace Veneer.Vanilla.Replacements
             viewportRect.offsetMin = Vector2.zero;
             viewportRect.offsetMax = Vector2.zero;
 
-            var viewportMask = viewportGo.AddComponent<Mask>();
-            viewportMask.showMaskGraphic = false;
+            // Use RectMask2D instead of Mask - doesn't require Image and better performance
+            viewportGo.AddComponent<RectMask2D>();
+
+            // Add Image for scroll rect interaction but don't show it
             var viewportImage = viewportGo.AddComponent<Image>();
-            viewportImage.color = Color.white;
-            viewportImage.raycastTarget = true;
+            viewportImage.color = Color.clear;
+            viewportImage.raycastTarget = true; // Needed for scroll drag
 
             _listScrollRect.viewport = viewportRect;
 
@@ -261,9 +237,6 @@ namespace Veneer.Vanilla.Replacements
 
             var bgImage = _textContainer.gameObject.AddComponent<Image>();
             bgImage.color = VeneerColors.BackgroundLight;
-
-            // Add RectMask2D to clip overflow
-            _textContainer.gameObject.AddComponent<RectMask2D>();
 
             float innerPadding = 12f;
 
@@ -315,10 +288,8 @@ namespace Veneer.Vanilla.Replacements
             viewportRect.offsetMin = Vector2.zero;
             viewportRect.offsetMax = Vector2.zero;
 
-            var viewportMask = viewportGo.AddComponent<Mask>();
-            viewportMask.showMaskGraphic = false;
-            var viewportImage = viewportGo.AddComponent<Image>();
-            viewportImage.color = Color.clear;
+            // Use RectMask2D for clipping
+            viewportGo.AddComponent<RectMask2D>();
 
             _textScrollRect.viewport = viewportRect;
 
@@ -350,12 +321,6 @@ namespace Veneer.Vanilla.Replacements
         private void FilterByCategory(string category)
         {
             _currentCategory = category;
-
-            foreach (var kvp in _categoryButtons)
-            {
-                kvp.Value.SetStyle(kvp.Key == category ? ButtonStyle.Primary : ButtonStyle.Default);
-            }
-
             UpdateEntryList();
         }
 
