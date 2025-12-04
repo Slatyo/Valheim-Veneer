@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
-using UnityEngine.EventSystems;
 using UnityEngine.UI;
 using Veneer.Components.Base;
 using Veneer.Components.Primitives;
@@ -14,25 +13,19 @@ namespace Veneer.Vanilla.Replacements
     /// <summary>
     /// Trophies panel replacement.
     /// Shows all trophies with monster names and collection status.
+    /// Uses VeneerFrame for consistent header/dragging/close button.
     /// </summary>
     public class VeneerTrophiesPanel : VeneerElement
     {
         private const string ElementIdTrophies = "Veneer_Trophies";
 
-        private Image _backgroundImage;
-        private Image _borderImage;
-        private VeneerText _titleText;
+        private VeneerFrame _frame;
         private VeneerText _countText;
-        private VeneerButton _closeButton;
         private RectTransform _trophiesContent;
         private ScrollRect _scrollRect;
 
         private List<TrophyCard> _trophyCards = new List<TrophyCard>();
         private Player _player;
-
-        // Dragging
-        private bool _isDragging;
-        private Vector2 _dragOffset;
 
         /// <summary>
         /// Creates the trophies panel.
@@ -53,96 +46,47 @@ namespace Veneer.Vanilla.Replacements
             LayerType = VeneerLayerType.Window;
             AutoRegisterWithManager = true;
 
-            VeneerAnchor.Register(ElementId, ScreenAnchor.Center, Vector2.zero);
-
             float width = 550f;
             float height = 550f;
-            float padding = VeneerDimensions.PaddingLarge;
-            float headerHeight = 35f;
 
             SetSize(width, height);
             AnchorTo(AnchorPreset.MiddleCenter);
 
-            // Background
-            _backgroundImage = gameObject.AddComponent<Image>();
-            _backgroundImage.sprite = VeneerTextures.CreatePanelSprite();
-            _backgroundImage.type = Image.Type.Sliced;
-            _backgroundImage.color = VeneerColors.Background;
+            // Create VeneerFrame with header, close button, and dragging
+            _frame = VeneerFrame.Create(transform, new FrameConfig
+            {
+                Id = ElementIdTrophies,
+                Name = "TrophiesFrame",
+                Title = "Trophies",
+                Width = width,
+                Height = height,
+                HasHeader = true,
+                HasCloseButton = true,
+                IsDraggable = true,
+                Moveable = true,
+                SavePosition = true,
+                Anchor = AnchorPreset.MiddleCenter
+            });
 
-            // Border
-            var borderGo = CreateUIObject("Border", transform);
-            var borderRect = borderGo.GetComponent<RectTransform>();
-            borderRect.anchorMin = Vector2.zero;
-            borderRect.anchorMax = Vector2.one;
-            borderRect.offsetMin = Vector2.zero;
-            borderRect.offsetMax = Vector2.zero;
+            // Fill parent
+            _frame.RectTransform.anchorMin = Vector2.zero;
+            _frame.RectTransform.anchorMax = Vector2.one;
+            _frame.RectTransform.offsetMin = Vector2.zero;
+            _frame.RectTransform.offsetMax = Vector2.zero;
 
-            _borderImage = borderGo.AddComponent<Image>();
-            var borderTex = VeneerTextures.CreateSlicedBorderTexture(16, VeneerColors.Border, Color.clear, 1);
-            _borderImage.sprite = VeneerTextures.CreateSlicedSprite(borderTex, 1);
-            _borderImage.type = Image.Type.Sliced;
-            _borderImage.raycastTarget = false;
+            // Connect close event
+            _frame.OnCloseClicked += Hide;
 
-            // Header with drag handle
-            var headerGo = CreateUIObject("Header", transform);
-            var headerRt = headerGo.GetComponent<RectTransform>();
-            headerRt.anchorMin = new Vector2(0, 1);
-            headerRt.anchorMax = new Vector2(1, 1);
-            headerRt.pivot = new Vector2(0.5f, 1);
-            headerRt.anchoredPosition = Vector2.zero;
-            headerRt.sizeDelta = new Vector2(0, headerHeight);
+            // Add count text to the header area (we need to add it after frame is created)
+            AddCountTextToHeader();
 
-            var headerBg = headerGo.AddComponent<Image>();
-            headerBg.color = VeneerColors.BackgroundDark;
-
-            // Add drag handler to header
-            var dragHandler = headerGo.AddComponent<TrophiesPanelDragHandler>();
-            dragHandler.Target = this;
-
-            // Title
-            var titleGo = CreateUIObject("Title", headerGo.transform);
-            var titleRect = titleGo.GetComponent<RectTransform>();
-            titleRect.anchorMin = new Vector2(0, 0);
-            titleRect.anchorMax = new Vector2(0.5f, 1);
-            titleRect.offsetMin = new Vector2(padding, 0);
-            titleRect.offsetMax = Vector2.zero;
-
-            _titleText = titleGo.AddComponent<VeneerText>();
-            _titleText.Content = "Trophies";
-            _titleText.ApplyStyle(TextStyle.Header);
-            _titleText.Alignment = TextAnchor.MiddleLeft;
-
-            // Count text
-            var countGo = CreateUIObject("Count", headerGo.transform);
-            var countRect = countGo.GetComponent<RectTransform>();
-            countRect.anchorMin = new Vector2(0.5f, 0);
-            countRect.anchorMax = new Vector2(1, 1);
-            countRect.offsetMin = Vector2.zero;
-            countRect.offsetMax = new Vector2(-50, 0);
-
-            _countText = countGo.AddComponent<VeneerText>();
-            _countText.Content = "0 / 0";
-            _countText.ApplyStyle(TextStyle.Gold);
-            _countText.Alignment = TextAnchor.MiddleRight;
-
-            // Close button
-            _closeButton = VeneerButton.Create(headerGo.transform, "X", () => Hide());
-            _closeButton.SetButtonSize(ButtonSize.Small);
-            _closeButton.SetStyle(ButtonStyle.Ghost);
-            var closeRect = _closeButton.RectTransform;
-            closeRect.anchorMin = new Vector2(1, 0.5f);
-            closeRect.anchorMax = new Vector2(1, 0.5f);
-            closeRect.pivot = new Vector2(1, 0.5f);
-            closeRect.anchoredPosition = new Vector2(-8, 0);
-            closeRect.sizeDelta = new Vector2(28, 24);
-
-            // Scroll view
-            var scrollGo = CreateUIObject("ScrollView", transform);
+            // Scroll view inside frame content
+            var scrollGo = CreateUIObject("ScrollView", _frame.Content);
             var scrollViewRect = scrollGo.GetComponent<RectTransform>();
             scrollViewRect.anchorMin = Vector2.zero;
             scrollViewRect.anchorMax = Vector2.one;
-            scrollViewRect.offsetMin = new Vector2(padding, padding);
-            scrollViewRect.offsetMax = new Vector2(-padding, -padding - headerHeight - 5);
+            scrollViewRect.offsetMin = Vector2.zero;
+            scrollViewRect.offsetMax = Vector2.zero;
 
             _scrollRect = scrollGo.AddComponent<ScrollRect>();
             _scrollRect.horizontal = false;
@@ -188,10 +132,6 @@ namespace Veneer.Vanilla.Replacements
 
             _scrollRect.content = _trophiesContent;
 
-            // Add mover
-            var mover = gameObject.AddComponent<VeneerMover>();
-            mover.ElementId = ElementId;
-
             // Add resizer
             var resizer = gameObject.AddComponent<VeneerResizer>();
             resizer.MinSize = new Vector2(400, 400);
@@ -200,13 +140,26 @@ namespace Veneer.Vanilla.Replacements
             // Start hidden - must register BEFORE SetActive(false) since Start() won't be called
             RegisterWithManager();
             gameObject.SetActive(false);
+        }
 
-            // Apply saved position
-            var savedData = VeneerAnchor.GetAnchorData(ElementId);
-            if (savedData != null)
-            {
-                VeneerAnchor.ApplyAnchor(RectTransform, savedData.Anchor, savedData.Offset);
-            }
+        private void AddCountTextToHeader()
+        {
+            // Find header in frame
+            var header = _frame.transform.Find("Header");
+            if (header == null) return;
+
+            // Count text (right side of header, before close button)
+            var countGo = CreateUIObject("Count", header);
+            var countRect = countGo.GetComponent<RectTransform>();
+            countRect.anchorMin = new Vector2(0.5f, 0);
+            countRect.anchorMax = new Vector2(1, 1);
+            countRect.offsetMin = Vector2.zero;
+            countRect.offsetMax = new Vector2(-40, 0); // Leave room for close button
+
+            _countText = countGo.AddComponent<VeneerText>();
+            _countText.Content = "0 / 0";
+            _countText.ApplyStyle(TextStyle.Gold);
+            _countText.Alignment = TextAnchor.MiddleRight;
         }
 
         /// <summary>
@@ -280,7 +233,10 @@ namespace Veneer.Vanilla.Replacements
                 .ToList();
 
             int collectedCount = trophyItems.Count(t => t.collected);
-            _countText.Content = $"{collectedCount} / {trophyItems.Count}";
+            if (_countText != null)
+            {
+                _countText.Content = $"{collectedCount} / {trophyItems.Count}";
+            }
 
             foreach (var trophy in trophyItems)
             {
@@ -483,59 +439,6 @@ namespace Veneer.Vanilla.Replacements
             public Text NameText;
             public Text MonsterText;
             public bool IsCollected;
-        }
-
-        // Drag handling for the panel
-        internal void OnBeginPanelDrag(PointerEventData eventData)
-        {
-            _isDragging = true;
-            RectTransformUtility.ScreenPointToLocalPointInRectangle(
-                transform.parent as RectTransform,
-                eventData.position,
-                eventData.pressEventCamera,
-                out var localPoint);
-            _dragOffset = RectTransform.anchoredPosition - localPoint;
-        }
-
-        internal void OnPanelDrag(PointerEventData eventData)
-        {
-            if (!_isDragging) return;
-
-            RectTransformUtility.ScreenPointToLocalPointInRectangle(
-                transform.parent as RectTransform,
-                eventData.position,
-                eventData.pressEventCamera,
-                out var localPoint);
-
-            RectTransform.anchoredPosition = localPoint + _dragOffset;
-        }
-
-        internal void OnEndPanelDrag(PointerEventData eventData)
-        {
-            _isDragging = false;
-        }
-    }
-
-    /// <summary>
-    /// Helper component for dragging the trophies panel by its header.
-    /// </summary>
-    public class TrophiesPanelDragHandler : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDragHandler
-    {
-        public VeneerTrophiesPanel Target { get; set; }
-
-        public void OnBeginDrag(PointerEventData eventData)
-        {
-            Target?.OnBeginPanelDrag(eventData);
-        }
-
-        public void OnDrag(PointerEventData eventData)
-        {
-            Target?.OnPanelDrag(eventData);
-        }
-
-        public void OnEndDrag(PointerEventData eventData)
-        {
-            Target?.OnEndPanelDrag(eventData);
         }
     }
 }

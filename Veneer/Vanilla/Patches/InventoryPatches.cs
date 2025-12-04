@@ -155,6 +155,24 @@ namespace Veneer.Vanilla.Patches
         }
 
         /// <summary>
+        /// Patch: Keep vanilla container hidden during updates.
+        /// The game re-enables the container UI each frame, so we need to hide it again.
+        /// </summary>
+        [HarmonyPatch(typeof(InventoryGui), nameof(InventoryGui.UpdateContainer))]
+        [HarmonyPostfix]
+        public static void InventoryGui_UpdateContainer_Postfix(InventoryGui __instance)
+        {
+            if (!VeneerConfig.Enabled.Value) return;
+            if (!VeneerConfig.ReplaceInventory.Value) return;
+
+            // Keep the vanilla container hidden
+            if (__instance.m_container != null)
+            {
+                __instance.m_container.gameObject.SetActive(false);
+            }
+        }
+
+        /// <summary>
         /// Patch: Override IsVisible to return false when cursor is force-hidden.
         /// This allows player movement/combat while keeping the UI visible on screen.
         /// </summary>

@@ -22,11 +22,6 @@ namespace Veneer.Components.Base
         private RectTransform _headerRect;
         private Text _titleText;
 
-        // Reserved for future window close button feature
-#pragma warning disable CS0169
-        private VeneerButton _closeButton;
-#pragma warning restore CS0169
-
         // Dragging
         private bool _isDragging;
         private Vector2 _dragOffset;
@@ -158,6 +153,13 @@ namespace Veneer.Components.Base
             _isDraggable = config.IsDraggable;
             _headerHeight = config.HeaderHeight > 0 ? config.HeaderHeight : VeneerDimensions.WindowTitleHeight;
 
+            // Cache canvas reference
+            _canvas = GetComponentInParent<Canvas>();
+            if (_canvas != null)
+            {
+                _canvasRect = _canvas.GetComponent<RectTransform>();
+            }
+
             SetSize(config.Width, config.Height);
 
             CreateBackground();
@@ -209,14 +211,7 @@ namespace Veneer.Components.Base
 
         private void CreateBackground()
         {
-            var bgGo = CreateUIObject("Background", transform);
-            var bgRect = bgGo.GetComponent<RectTransform>();
-            bgRect.anchorMin = Vector2.zero;
-            bgRect.anchorMax = Vector2.one;
-            bgRect.offsetMin = Vector2.zero;
-            bgRect.offsetMax = Vector2.zero;
-
-            _backgroundImage = bgGo.AddComponent<Image>();
+            _backgroundImage = gameObject.AddComponent<Image>();
             _backgroundImage.sprite = VeneerTextures.CreatePanelSprite();
             _backgroundImage.type = Image.Type.Sliced;
             _backgroundImage.color = VeneerColors.Background;
@@ -255,16 +250,16 @@ namespace Veneer.Components.Base
             _headerRect.sizeDelta = new Vector2(0, _headerHeight);
             _headerRect.anchoredPosition = Vector2.zero;
 
-            // Header background
+            // Header background - use lighter color like VeneerWindow
             var headerBg = headerGo.AddComponent<Image>();
-            headerBg.color = VeneerColors.BackgroundDark;
+            headerBg.color = VeneerColors.BackgroundLight;
 
             // Title text
             var titleGo = CreateUIObject("TitleText", _headerRect);
             var titleRect = titleGo.GetComponent<RectTransform>();
             titleRect.anchorMin = Vector2.zero;
             titleRect.anchorMax = Vector2.one;
-            titleRect.offsetMin = new Vector2(VeneerDimensions.Padding + 4, 0);
+            titleRect.offsetMin = new Vector2(VeneerDimensions.Padding, 0);
             titleRect.offsetMax = new Vector2(closeable ? -_headerHeight : -VeneerDimensions.Padding, 0);
 
             _titleText = titleGo.AddComponent<Text>();
@@ -297,7 +292,7 @@ namespace Veneer.Components.Base
             var bgImage = closeGo.AddComponent<Image>();
             bgImage.color = Color.clear;
 
-            // X label
+            // X label - styled like VeneerWindow
             var xGo = CreateUIObject("X", closeRect);
             var xRect = xGo.GetComponent<RectTransform>();
             xRect.anchorMin = Vector2.zero;
@@ -315,9 +310,9 @@ namespace Veneer.Components.Base
 
             var button = closeGo.AddComponent<Button>();
             button.targetGraphic = bgImage;
-            button.onClick.AddListener(OnCloseButtonClicked);
+            button.onClick.AddListener(Close);
 
-            // Hover effect
+            // Hover effect - turns red on hover like VeneerWindow
             var trigger = closeGo.AddComponent<EventTrigger>();
 
             var enterEntry = new EventTrigger.Entry { eventID = EventTriggerType.PointerEnter };
@@ -329,10 +324,14 @@ namespace Veneer.Components.Base
             trigger.triggers.Add(exitEntry);
         }
 
-        private void OnCloseButtonClicked()
+        /// <summary>
+        /// Closes the frame (fires OnCloseClicked).
+        /// Note: Does NOT call Hide() - the owner should handle hiding via OnCloseClicked.
+        /// This prevents double-hide issues when the frame is nested inside a panel.
+        /// </summary>
+        public void Close()
         {
             OnCloseClicked?.Invoke();
-            Hide();
         }
 
         private void CreateContentArea()
@@ -362,7 +361,7 @@ namespace Veneer.Components.Base
 
             _isDragging = true;
 
-            // Cache canvas and its RectTransform
+            // Cache canvas and its RectTransform if not already cached
             if (_canvas == null || _canvasRect == null)
             {
                 _canvas = GetComponentInParent<Canvas>();
@@ -398,7 +397,12 @@ namespace Veneer.Components.Base
                 eventData.pressEventCamera,
                 out var localPoint);
 
-            RectTransform.anchoredPosition = localPoint + _dragOffset;
+            Vector2 newPosition = localPoint + _dragOffset;
+
+            // Clamp to screen bounds
+            newPosition = ClampToScreen(newPosition);
+
+            RectTransform.anchoredPosition = newPosition;
         }
 
         public void OnEndDrag(PointerEventData eventData)
@@ -413,7 +417,101 @@ namespace Veneer.Components.Base
             }
         }
 
+        /// <summary>
+        /// Clamps position to keep frame on screen.
+        /// Uses screen coordinates for accurate bounds regardless of parent hierarchy.
+        /// </summary>
+        private Vector2 ClampToScreen(Vector2 position)
+        {
+            if (_canvasRect == null) return position;
+
+            // Get screen dimensions in canvas space
+            float scaleFactor = _canvas != null ? _canvas.scaleFactor : 1f;
+            float screenWidth = Screen.width / scaleFactor;
+            float screenHeight = Screen.height / scaleFactor;
+
+            Vector2 frameSize = RectTransform.sizeDelta;
+
+            // Minimum visible portion - at least the header or 30px should stay on screen
+            float minVisible = _hasHeader ? _headerHeight + 10f : 30f;
+
+            // Get the parent's position in canvas space to calculate proper bounds
+            // The position is relative to parent, so we need to account for parent's offset from canvas center
+            Vector2 parentOffset = Vector2.zero;
+            RectTransform parentRect = transform.parent as RectTransform;
+            if (parentRect != null && parentRect != _canvasRect)
+            {
+                // Get world corners of parent and convert to canvas-relative position
+                Vector3[] parentCorners = new Vector3[4];
+                parentRect.GetWorldCorners(parentCorners);
+                Vector3 parentCenter = (parentCorners[0] + parentCorners[2]) / 2f;
+
+                // Convert to canvas local space
+                RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                    _canvasRect,
+                    RectTransformUtility.WorldToScreenPoint(null, parentCenter),
+                    null,
+                    out parentOffset);
+            }
+
+            // Calculate bounds - frame position is relative to its parent's center
+            // We need to keep at least minVisible pixels of the frame on screen
+            float halfScreenW = screenWidth / 2f;
+            float halfScreenH = screenHeight / 2f;
+
+            // Adjust bounds based on parent offset
+            float minX = -halfScreenW - parentOffset.x + minVisible;
+            float maxX = halfScreenW - parentOffset.x - minVisible;
+            float minY = -halfScreenH - parentOffset.y + minVisible;
+            float maxY = halfScreenH - parentOffset.y - minVisible;
+
+            position.x = Mathf.Clamp(position.x, minX, maxX);
+            position.y = Mathf.Clamp(position.y, minY, maxY);
+
+            return position;
+        }
+
         #endregion
+
+        #region Helper Methods (from VeneerWindow)
+
+        /// <summary>
+        /// Adds a text element to the content area.
+        /// </summary>
+        public VeneerText AddText(string content, TextStyle style = TextStyle.Body)
+        {
+            var text = VeneerText.Create(_contentArea, content);
+            text.ApplyStyle(style);
+            return text;
+        }
+
+        /// <summary>
+        /// Adds a button to the content area.
+        /// </summary>
+        public VeneerButton AddButton(string label, Action onClick)
+        {
+            return VeneerButton.Create(_contentArea, label, onClick);
+        }
+
+        /// <summary>
+        /// Adds a panel to the content area.
+        /// </summary>
+        public VeneerPanel AddPanel(float width, float height)
+        {
+            return VeneerPanel.Create(_contentArea, "Panel", width, height);
+        }
+
+        /// <summary>
+        /// Adds a bar to the content area.
+        /// </summary>
+        public VeneerBar AddBar(float width = 200, float height = 20)
+        {
+            return VeneerBar.Create(_contentArea, "Bar", width, height);
+        }
+
+        #endregion
+
+        #region Styling Methods
 
         /// <summary>
         /// Sets the internal padding of the content area.
@@ -456,6 +554,8 @@ namespace Veneer.Components.Base
         {
             BorderColor = VeneerColors.GetRarityColor(rarityTier);
         }
+
+        #endregion
 
         /// <summary>
         /// Shows the frame and brings it to front.

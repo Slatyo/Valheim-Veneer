@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using UnityEngine;
-using UnityEngine.EventSystems;
 using UnityEngine.UI;
 using Veneer.Components.Base;
 using Veneer.Components.Primitives;
@@ -16,15 +15,14 @@ namespace Veneer.Vanilla.Replacements
     /// <summary>
     /// Compendium panel replacement.
     /// Shows discovered lore texts, runestones, and tutorials.
+    /// Uses VeneerFrame for consistent header/dragging/close button.
     /// </summary>
     public class VeneerCompendiumPanel : VeneerElement
     {
         private const string ElementIdCompendium = "Veneer_Compendium";
 
-        private Image _backgroundImage;
-        private VeneerText _titleText;
+        private VeneerFrame _frame;
         private VeneerText _countText;
-        private VeneerButton _closeButton;
 
         // Entry list (left side)
         private RectTransform _listContainer;
@@ -47,10 +45,6 @@ namespace Veneer.Vanilla.Replacements
         private string _currentCategory = "All";
         private Dictionary<string, VeneerButton> _categoryButtons = new Dictionary<string, VeneerButton>();
 
-        // Dragging
-        private bool _isDragging;
-        private Vector2 _dragOffset;
-
         /// <summary>
         /// Creates the compendium panel.
         /// </summary>
@@ -70,102 +64,51 @@ namespace Veneer.Vanilla.Replacements
             LayerType = VeneerLayerType.Popup;
             AutoRegisterWithManager = true;
 
-            VeneerAnchor.Register(ElementId, ScreenAnchor.Center, Vector2.zero);
-
             float width = 700f;
             float height = 500f;
-            float padding = 12f;
-            float headerHeight = 32f;
-            float categoryHeight = 30f;
 
             SetSize(width, height);
             AnchorTo(AnchorPreset.MiddleCenter);
 
-            // Background
-            _backgroundImage = gameObject.AddComponent<Image>();
-            _backgroundImage.sprite = VeneerTextures.CreatePanelSprite();
-            _backgroundImage.type = Image.Type.Sliced;
-            _backgroundImage.color = VeneerColors.Background;
+            // Create VeneerFrame with header, close button, and dragging
+            _frame = VeneerFrame.Create(transform, new FrameConfig
+            {
+                Id = ElementIdCompendium,
+                Name = "CompendiumFrame",
+                Title = "Compendium",
+                Width = width,
+                Height = height,
+                HasHeader = true,
+                HasCloseButton = true,
+                IsDraggable = true,
+                Moveable = true,
+                SavePosition = true,
+                Anchor = AnchorPreset.MiddleCenter
+            });
 
-            // Border
-            var borderGo = CreateUIObject("Border", transform);
-            var borderRect = borderGo.GetComponent<RectTransform>();
-            borderRect.anchorMin = Vector2.zero;
-            borderRect.anchorMax = Vector2.one;
-            borderRect.offsetMin = Vector2.zero;
-            borderRect.offsetMax = Vector2.zero;
-            var borderImage = borderGo.AddComponent<Image>();
-            var borderTex = VeneerTextures.CreateSlicedBorderTexture(16, VeneerColors.Border, Color.clear, 2);
-            borderImage.sprite = VeneerTextures.CreateSlicedSprite(borderTex, 2);
-            borderImage.type = Image.Type.Sliced;
-            borderImage.raycastTarget = false;
+            // Fill parent
+            _frame.RectTransform.anchorMin = Vector2.zero;
+            _frame.RectTransform.anchorMax = Vector2.one;
+            _frame.RectTransform.offsetMin = Vector2.zero;
+            _frame.RectTransform.offsetMax = Vector2.zero;
 
-            // Header with drag handle
-            var headerGo = CreateUIObject("Header", transform);
-            var headerRect = headerGo.GetComponent<RectTransform>();
-            headerRect.anchorMin = new Vector2(0, 1);
-            headerRect.anchorMax = new Vector2(1, 1);
-            headerRect.pivot = new Vector2(0.5f, 1);
-            headerRect.anchoredPosition = Vector2.zero;
-            headerRect.sizeDelta = new Vector2(0, headerHeight);
+            // Connect close event
+            _frame.OnCloseClicked += Hide;
 
-            var headerBg = headerGo.AddComponent<Image>();
-            headerBg.color = VeneerColors.BackgroundDark;
+            // Add count text to the header area
+            AddCountTextToHeader();
 
-            // Add drag handler to header
-            var dragHandler = headerGo.AddComponent<PanelDragHandler>();
-            dragHandler.Target = this;
+            // Use frame's content area for all inner content
+            var content = _frame.Content;
 
-            // Title
-            var titleGo = CreateUIObject("Title", headerGo.transform);
-            var titleRect = titleGo.GetComponent<RectTransform>();
-            titleRect.anchorMin = new Vector2(0, 0);
-            titleRect.anchorMax = new Vector2(0.5f, 1);
-            titleRect.offsetMin = new Vector2(padding, 0);
-            titleRect.offsetMax = new Vector2(0, 0);
-
-            _titleText = titleGo.AddComponent<VeneerText>();
-            _titleText.Content = "Compendium";
-            _titleText.ApplyStyle(TextStyle.Header);
-            _titleText.Alignment = TextAnchor.MiddleLeft;
-
-            // Count text
-            var countGo = CreateUIObject("Count", headerGo.transform);
-            var countRect = countGo.GetComponent<RectTransform>();
-            countRect.anchorMin = new Vector2(0.5f, 0);
-            countRect.anchorMax = new Vector2(1, 1);
-            countRect.offsetMin = new Vector2(0, 0);
-            countRect.offsetMax = new Vector2(-50, 0);
-
-            _countText = countGo.AddComponent<VeneerText>();
-            _countText.Content = "0 entries";
-            _countText.ApplyStyle(TextStyle.Muted);
-            _countText.Alignment = TextAnchor.MiddleRight;
-
-            // Close button
-            _closeButton = VeneerButton.Create(headerGo.transform, "X", () => Hide());
-            _closeButton.SetButtonSize(ButtonSize.Small);
-            _closeButton.SetStyle(ButtonStyle.Ghost);
-            var closeRect = _closeButton.RectTransform;
-            closeRect.anchorMin = new Vector2(1, 0.5f);
-            closeRect.anchorMax = new Vector2(1, 0.5f);
-            closeRect.pivot = new Vector2(1, 0.5f);
-            closeRect.anchoredPosition = new Vector2(-8, 0);
-            closeRect.sizeDelta = new Vector2(28, 24);
-
-            // Category bar
-            float contentTop = headerHeight;
-            CreateCategoryBar(padding, contentTop, categoryHeight);
-            contentTop += categoryHeight + 4;
+            // Category bar at the top of content
+            float categoryHeight = 30f;
+            CreateCategoryBar(content, categoryHeight);
 
             // Main content area - use percentage-based layout for resize scaling
             // Left panel takes 35%, right panel takes 65%
-            CreateEntryList(padding, contentTop, 0.35f);
-            CreateTextPanel(0.35f, contentTop, 0.65f);
-
-            // Add mover
-            var mover = gameObject.AddComponent<VeneerMover>();
-            mover.ElementId = ElementId;
+            CreateEntryList(content, categoryHeight, 0.35f);
+            CreateTextPanel(content, categoryHeight, 0.35f, 0.65f);
 
             // Add resizer
             var resizer = gameObject.AddComponent<VeneerResizer>();
@@ -175,24 +118,37 @@ namespace Veneer.Vanilla.Replacements
             // Start hidden - must register BEFORE SetActive(false) since Start() won't be called
             RegisterWithManager();
             gameObject.SetActive(false);
-
-            // Apply saved position
-            var savedData = VeneerAnchor.GetAnchorData(ElementId);
-            if (savedData != null)
-            {
-                VeneerAnchor.ApplyAnchor(RectTransform, savedData.Anchor, savedData.Offset);
-            }
         }
 
-        private void CreateCategoryBar(float padding, float top, float height)
+        private void AddCountTextToHeader()
         {
-            var categoryBar = CreateUIObject("CategoryBar", transform);
+            // Find header in frame
+            var header = _frame.transform.Find("Header");
+            if (header == null) return;
+
+            // Count text (right side of header, before close button)
+            var countGo = CreateUIObject("Count", header);
+            var countRect = countGo.GetComponent<RectTransform>();
+            countRect.anchorMin = new Vector2(0.5f, 0);
+            countRect.anchorMax = new Vector2(1, 1);
+            countRect.offsetMin = Vector2.zero;
+            countRect.offsetMax = new Vector2(-40, 0); // Leave room for close button
+
+            _countText = countGo.AddComponent<VeneerText>();
+            _countText.Content = "0 entries";
+            _countText.ApplyStyle(TextStyle.Muted);
+            _countText.Alignment = TextAnchor.MiddleRight;
+        }
+
+        private void CreateCategoryBar(RectTransform parent, float height)
+        {
+            var categoryBar = CreateUIObject("CategoryBar", parent);
             var categoryRect = categoryBar.GetComponent<RectTransform>();
             categoryRect.anchorMin = new Vector2(0, 1);
             categoryRect.anchorMax = new Vector2(1, 1);
             categoryRect.pivot = new Vector2(0.5f, 1);
-            categoryRect.anchoredPosition = new Vector2(0, -top);
-            categoryRect.sizeDelta = new Vector2(-padding * 2, height);
+            categoryRect.anchoredPosition = Vector2.zero;
+            categoryRect.sizeDelta = new Vector2(0, height);
 
             var layout = categoryBar.AddComponent<HorizontalLayoutGroup>();
             layout.childAlignment = TextAnchor.MiddleLeft;
@@ -201,7 +157,7 @@ namespace Veneer.Vanilla.Replacements
             layout.childForceExpandWidth = false;
             layout.childForceExpandHeight = true;
             layout.spacing = 4f;
-            layout.padding = new RectOffset((int)padding, (int)padding, 2, 2);
+            layout.padding = new RectOffset(0, 0, 2, 2);
 
             string[] categories = { "All", "Lore", "Runestones", "Tutorials", "Biomes" };
             float[] widths = { 40f, 45f, 80f, 70f, 55f };
@@ -222,18 +178,15 @@ namespace Veneer.Vanilla.Replacements
             }
         }
 
-        private void CreateEntryList(float paddingLeft, float topOffset, float widthPercent)
+        private void CreateEntryList(RectTransform parent, float topOffset, float widthPercent)
         {
             // Use percentage-based anchors so content scales with parent resize
-            // The topOffset is fixed pixels for header/category, content area stretches below
-            _listContainer = CreateUIObject("EntryListContainer", transform).GetComponent<RectTransform>();
+            _listContainer = CreateUIObject("EntryListContainer", parent).GetComponent<RectTransform>();
             _listContainer.anchorMin = new Vector2(0, 0);
             _listContainer.anchorMax = new Vector2(widthPercent, 1);
             _listContainer.pivot = new Vector2(0, 0.5f);
-            // offsetMin = (left padding, bottom padding), offsetMax = (right margin, top margin from anchor)
-            // The content stretches from bottom to (top - topOffset)
-            _listContainer.offsetMin = new Vector2(paddingLeft, 12); // left, bottom padding
-            _listContainer.offsetMax = new Vector2(-6, -topOffset); // right margin, fixed top offset for header area
+            _listContainer.offsetMin = new Vector2(0, 0); // left, bottom padding
+            _listContainer.offsetMax = new Vector2(-6, -topOffset - 4); // right margin, top offset
 
             var bgImage = _listContainer.gameObject.AddComponent<Image>();
             bgImage.color = VeneerColors.BackgroundDark;
@@ -296,16 +249,15 @@ namespace Veneer.Vanilla.Replacements
             _listScrollRect.content = _listContent;
         }
 
-        private void CreateTextPanel(float leftPercent, float top, float widthPercent)
+        private void CreateTextPanel(RectTransform parent, float topOffset, float leftPercent, float widthPercent)
         {
             // Use percentage-based anchors so content scales with parent resize
-            _textContainer = CreateUIObject("TextPanel", transform).GetComponent<RectTransform>();
+            _textContainer = CreateUIObject("TextPanel", parent).GetComponent<RectTransform>();
             _textContainer.anchorMin = new Vector2(leftPercent, 0);
             _textContainer.anchorMax = new Vector2(leftPercent + widthPercent, 1);
             _textContainer.pivot = new Vector2(0.5f, 0.5f);
-            // Use offsets from anchors
-            _textContainer.offsetMin = new Vector2(6, 12); // left margin, bottom padding
-            _textContainer.offsetMax = new Vector2(-12, -top); // right padding, top offset
+            _textContainer.offsetMin = new Vector2(6, 0); // left margin, bottom
+            _textContainer.offsetMax = new Vector2(0, -topOffset - 4); // right, top offset
 
             var bgImage = _textContainer.gameObject.AddComponent<Image>();
             bgImage.color = VeneerColors.BackgroundLight;
@@ -464,7 +416,10 @@ namespace Veneer.Vanilla.Replacements
                 ? _discoveredTexts
                 : _discoveredTexts.Where(t => MatchesCategory(t.Key, _currentCategory)).ToList();
 
-            _countText.Content = $"{filteredTexts.Count} {(filteredTexts.Count == 1 ? "entry" : "entries")}";
+            if (_countText != null)
+            {
+                _countText.Content = $"{filteredTexts.Count} {(filteredTexts.Count == 1 ? "entry" : "entries")}";
+            }
 
             foreach (var text in filteredTexts)
             {
@@ -614,36 +569,6 @@ namespace Veneer.Vanilla.Replacements
             return "L";
         }
 
-        // Drag handling for the panel
-        internal void OnBeginPanelDrag(PointerEventData eventData)
-        {
-            _isDragging = true;
-            RectTransformUtility.ScreenPointToLocalPointInRectangle(
-                transform.parent as RectTransform,
-                eventData.position,
-                eventData.pressEventCamera,
-                out var localPoint);
-            _dragOffset = RectTransform.anchoredPosition - localPoint;
-        }
-
-        internal void OnPanelDrag(PointerEventData eventData)
-        {
-            if (!_isDragging) return;
-
-            RectTransformUtility.ScreenPointToLocalPointInRectangle(
-                transform.parent as RectTransform,
-                eventData.position,
-                eventData.pressEventCamera,
-                out var localPoint);
-
-            RectTransform.anchoredPosition = localPoint + _dragOffset;
-        }
-
-        internal void OnEndPanelDrag(PointerEventData eventData)
-        {
-            _isDragging = false;
-        }
-
         private class CompendiumEntry
         {
             public GameObject GameObject;
@@ -656,29 +581,6 @@ namespace Veneer.Vanilla.Replacements
             {
                 Background.color = selected ? VeneerColors.Accent * 0.35f : VeneerColors.BackgroundLight;
             }
-        }
-    }
-
-    /// <summary>
-    /// Helper component for dragging panels by their header.
-    /// </summary>
-    public class PanelDragHandler : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDragHandler
-    {
-        public VeneerCompendiumPanel Target { get; set; }
-
-        public void OnBeginDrag(PointerEventData eventData)
-        {
-            Target?.OnBeginPanelDrag(eventData);
-        }
-
-        public void OnDrag(PointerEventData eventData)
-        {
-            Target?.OnPanelDrag(eventData);
-        }
-
-        public void OnEndDrag(PointerEventData eventData)
-        {
-            Target?.OnEndPanelDrag(eventData);
         }
     }
 }

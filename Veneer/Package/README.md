@@ -358,8 +358,7 @@ if (VeneerAPI.IsReady) { }
 | Component | Description |
 |-----------|-------------|
 | `VeneerPanel` | Basic panel with background and border |
-| `VeneerFrame` | Standalone container with positioning |
-| `VeneerWindow` | Draggable window with title bar |
+| `VeneerFrame` | Container with optional header, close button, and dragging |
 | `VeneerBar` | Progress/resource bar |
 | `VeneerText` | Styled text element |
 | `VeneerButton` | Interactive button |

@@ -2,7 +2,6 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using Veneer.Components.Base;
-using Veneer.Components.Composite;
 using Veneer.Components.Primitives;
 using Veneer.Components.Specialized;
 using Veneer.Core;
@@ -12,24 +11,25 @@ using Veneer.Theme;
 namespace Veneer.Vanilla.Replacements
 {
     /// <summary>
-    /// Complete inventory panel replacement.
-    /// Clean layout with proper sizing and no overlapping elements.
+    /// Complete inventory panel replacement using proper Veneer components.
+    /// Uses VeneerFrame for both inventory and container panels.
     /// </summary>
     public class VeneerInventoryPanel : VeneerElement
     {
         private const string ElementIdInventory = "Veneer_Inventory";
         private const string ElementIdContainer = "Veneer_Container";
 
+        // Main inventory frame
+        private VeneerFrame _inventoryFrame;
+
         // UI References
-        private VeneerText _titleText;
         private VeneerText _weightText;
         private Dictionary<string, VeneerItemSlot> _equipmentSlots = new Dictionary<string, VeneerItemSlot>();
         private VeneerItemGrid _inventoryGrid;
         private VeneerItemGrid _quickSlotGrid;
 
-        // Container panel
-        private GameObject _containerPanel;
-        private VeneerText _containerTitle;
+        // Container frame (separate VeneerFrame)
+        private VeneerFrame _containerFrame;
         private VeneerItemGrid _containerGrid;
 
         // State
@@ -43,7 +43,6 @@ namespace Veneer.Vanilla.Replacements
         private const int EQUIP_COLS = 2;
         private const int EQUIP_ROWS = 4;
         private const int QUICKSLOT_COLS = 8;
-        private const float HEADER_HEIGHT = 28f;
         private const float LABEL_HEIGHT = 18f;
         private const float WEIGHT_HEIGHT = 20f;
 
@@ -69,11 +68,11 @@ namespace Veneer.Vanilla.Replacements
         {
             var go = CreateUIObject("VeneerInventoryPanel", parent);
             var panel = go.AddComponent<VeneerInventoryPanel>();
-            panel.Initialize();
+            panel.Initialize(parent);
             return panel;
         }
 
-        private void Initialize()
+        private void Initialize(Transform parent)
         {
             ElementId = ElementIdInventory;
             IsMoveable = true;
@@ -81,11 +80,9 @@ namespace Veneer.Vanilla.Replacements
             LayerType = VeneerLayerType.Window;
             AutoRegisterWithManager = true;
 
-            VeneerAnchor.Register(ElementId, ScreenAnchor.Right, new Vector2(-20, 0));
-
             // Calculate slot size (scaled up from base)
             _slotSize = VeneerConfig.SlotSize.Value * 1.3f;
-            float padding = 12f;
+            float padding = VeneerDimensions.Padding;
             float spacing = 8f;
             float innerSpacing = 4f;
 
@@ -103,153 +100,105 @@ namespace Veneer.Vanilla.Replacements
             float contentWidth = equipWidth + spacing + bagWidth;
             float mainHeight = Mathf.Max(equipHeight + LABEL_HEIGHT + innerSpacing, bagHeight + LABEL_HEIGHT + innerSpacing);
             float totalWidth = contentWidth + padding * 2;
-            float totalHeight = HEADER_HEIGHT + mainHeight + spacing + LABEL_HEIGHT + innerSpacing + quickHeight + spacing + WEIGHT_HEIGHT + padding * 2;
+            float totalHeight = VeneerDimensions.WindowTitleHeight + mainHeight + spacing + LABEL_HEIGHT + innerSpacing + quickHeight + spacing + WEIGHT_HEIGHT + padding * 2;
 
-            SetSize(totalWidth, totalHeight);
-            AnchorTo(AnchorPreset.MiddleRight, new Vector2(-20, 0));
+            // Create main inventory frame using VeneerFrame
+            _inventoryFrame = VeneerFrame.Create(parent, new FrameConfig
+            {
+                Id = ElementIdInventory,
+                Name = "InventoryFrame",
+                Title = "Inventory",
+                Width = totalWidth,
+                Height = totalHeight,
+                HasHeader = true,
+                HasCloseButton = true,
+                IsDraggable = true,
+                Moveable = true,
+                SavePosition = true,
+                Anchor = AnchorPreset.MiddleRight,
+                Offset = new Vector2(-20, 0)
+            });
 
-            // Background
-            var bg = gameObject.AddComponent<Image>();
-            bg.sprite = VeneerTextures.CreatePanelSprite();
-            bg.type = Image.Type.Sliced;
-            bg.color = VeneerColors.Background;
+            _inventoryFrame.OnCloseClicked += OnInventoryWindowClosed;
 
-            // Border
-            CreateBorder(transform);
+            // Build content inside the frame's content area
+            BuildInventoryContent(_inventoryFrame.Content, contentWidth, equipWidth, equipHeight, bagWidth, bagHeight, quickWidth, quickHeight, spacing, innerSpacing);
 
-            // Build layout from top to bottom
-            float yPos = -padding;
+            // Create container frame (hidden by default)
+            CreateContainerFrame(parent);
 
-            // Header
-            yPos = CreateHeader(transform, padding, yPos, contentWidth);
-
-            // Main section (Equipment + Bag side by side)
-            yPos -= spacing;
-            yPos = CreateMainSection(transform, padding, yPos, equipWidth, equipHeight, bagWidth, bagHeight, spacing, innerSpacing);
-
-            // Quickslots
-            yPos -= spacing;
-            yPos = CreateQuickSlots(transform, padding, yPos, quickWidth, quickHeight, innerSpacing);
-
-            // Weight
-            yPos -= spacing;
-            CreateWeight(transform, padding, yPos, contentWidth);
-
-            // Add mover
-            var mover = gameObject.AddComponent<VeneerMover>();
-            mover.ElementId = ElementId;
-
-            // Create container panel (hidden by default)
-            CreateContainerPanel();
+            // Register anchor
+            VeneerAnchor.Register(ElementIdInventory, ScreenAnchor.Right, new Vector2(-20, 0));
 
             // Start hidden
             RegisterWithManager();
-            gameObject.SetActive(false);
-
-            // Apply saved position
-            var savedData = VeneerAnchor.GetAnchorData(ElementId);
-            if (savedData != null)
-            {
-                VeneerAnchor.ApplyAnchor(RectTransform, savedData.Anchor, savedData.Offset);
-            }
+            _inventoryFrame.Hide();
         }
 
-        private void CreateBorder(Transform parent)
+        private void BuildInventoryContent(RectTransform content, float contentWidth, float equipWidth, float equipHeight, float bagWidth, float bagHeight, float quickWidth, float quickHeight, float spacing, float innerSpacing)
         {
-            var borderGo = CreateUIObject("Border", parent);
-            var borderRect = borderGo.GetComponent<RectTransform>();
-            borderRect.anchorMin = Vector2.zero;
-            borderRect.anchorMax = Vector2.one;
-            borderRect.offsetMin = Vector2.zero;
-            borderRect.offsetMax = Vector2.zero;
+            float yPos = 0;
+            float xPos = 0;
 
-            var borderImage = borderGo.AddComponent<Image>();
-            var borderTex = VeneerTextures.CreateSlicedBorderTexture(16, VeneerColors.Border, Color.clear, 1);
-            borderImage.sprite = VeneerTextures.CreateSlicedSprite(borderTex, 1);
-            borderImage.type = Image.Type.Sliced;
-            borderImage.raycastTarget = false;
-        }
-
-        private float CreateHeader(Transform parent, float padding, float yPos, float width)
-        {
-            var headerGo = CreateUIObject("Header", parent);
-            var headerRect = headerGo.GetComponent<RectTransform>();
-            headerRect.anchorMin = new Vector2(0, 1);
-            headerRect.anchorMax = new Vector2(0, 1);
-            headerRect.pivot = new Vector2(0, 1);
-            headerRect.anchoredPosition = new Vector2(padding, yPos);
-            headerRect.sizeDelta = new Vector2(width, HEADER_HEIGHT);
-
-            _titleText = headerGo.AddComponent<VeneerText>();
-            _titleText.Content = "Inventory";
-            _titleText.ApplyStyle(TextStyle.Header);
-            _titleText.Alignment = TextAnchor.MiddleCenter;
-
-            return yPos - HEADER_HEIGHT;
-        }
-
-        private float CreateMainSection(Transform parent, float padding, float yPos, float equipWidth, float equipHeight, float bagWidth, float bagHeight, float spacing, float innerSpacing)
-        {
-            float xPos = padding;
-
+            // Main section (Equipment + Bag side by side)
             // Equipment section
-            CreateSectionWithLabel(parent, "GEAR", xPos, yPos, equipWidth, LABEL_HEIGHT);
-            CreateEquipmentGrid(parent, xPos, yPos - LABEL_HEIGHT - innerSpacing, equipWidth, equipHeight, innerSpacing);
+            CreateSectionLabel(content, "GEAR", xPos, yPos, equipWidth);
+            yPos -= LABEL_HEIGHT + innerSpacing;
+            CreateEquipmentGrid(content, xPos, yPos, equipWidth, equipHeight, innerSpacing);
 
-            xPos += equipWidth + spacing;
+            float equipSectionX = equipWidth + spacing;
 
             // Bag section
-            CreateSectionWithLabel(parent, "BAG", xPos, yPos, bagWidth, LABEL_HEIGHT);
-            _inventoryGrid = CreateItemGrid(parent, "InventoryGrid", xPos, yPos - LABEL_HEIGHT - innerSpacing, INV_COLS, INV_ROWS, innerSpacing);
+            CreateSectionLabel(content, "BAG", equipSectionX, 0, bagWidth);
+            _inventoryGrid = CreateItemGrid(content, "InventoryGrid", equipSectionX, -LABEL_HEIGHT - innerSpacing, INV_COLS, INV_ROWS, innerSpacing);
 
             float sectionHeight = Mathf.Max(LABEL_HEIGHT + innerSpacing + equipHeight, LABEL_HEIGHT + innerSpacing + bagHeight);
-            return yPos - sectionHeight;
+            yPos = -sectionHeight - spacing;
+
+            // Quickslots section
+            CreateSectionLabel(content, "HOTBAR", 0, yPos, quickWidth);
+            yPos -= LABEL_HEIGHT + innerSpacing;
+            _quickSlotGrid = CreateItemGrid(content, "QuickSlots", 0, yPos, QUICKSLOT_COLS, 1, innerSpacing);
+
+            yPos -= quickHeight + spacing;
+
+            // Weight display
+            CreateWeightDisplay(content, yPos, contentWidth);
         }
 
-        private void CreateSectionWithLabel(Transform parent, string text, float x, float y, float width, float height)
+        private void CreateSectionLabel(RectTransform parent, string text, float x, float y, float width)
         {
-            var labelGo = CreateUIObject($"Label_{text}", parent);
-            var labelRect = labelGo.GetComponent<RectTransform>();
-            labelRect.anchorMin = new Vector2(0, 1);
-            labelRect.anchorMax = new Vector2(0, 1);
-            labelRect.pivot = new Vector2(0, 1);
-            labelRect.anchoredPosition = new Vector2(x, y);
-            labelRect.sizeDelta = new Vector2(width, height);
+            var panel = VeneerPanel.Create(parent, $"Label_{text}", width, LABEL_HEIGHT);
+            panel.BackgroundColor = VeneerColors.BackgroundDark;
+            panel.ShowBorder = false;
 
-            var labelBg = labelGo.AddComponent<Image>();
-            labelBg.color = VeneerColors.BackgroundDark;
+            var panelRect = panel.RectTransform;
+            panelRect.anchorMin = new Vector2(0, 1);
+            panelRect.anchorMax = new Vector2(0, 1);
+            panelRect.pivot = new Vector2(0, 1);
+            panelRect.anchoredPosition = new Vector2(x, y);
 
-            var textGo = CreateUIObject("Text", labelGo.transform);
-            var textRect = textGo.GetComponent<RectTransform>();
-            textRect.anchorMin = Vector2.zero;
-            textRect.anchorMax = Vector2.one;
-            textRect.offsetMin = new Vector2(4, 0);
-            textRect.offsetMax = new Vector2(-4, 0);
-
-            var labelText = textGo.AddComponent<Text>();
-            labelText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
-            labelText.fontSize = VeneerConfig.GetScaledFontSize(10);
-            labelText.fontStyle = FontStyle.Bold;
-            labelText.color = VeneerColors.TextGold;
-            labelText.alignment = TextAnchor.MiddleCenter;
-            labelText.text = text;
+            var labelText = VeneerText.Create(panel.transform, text);
+            labelText.ApplyStyle(TextStyle.Caption);
+            labelText.TextColor = VeneerColors.TextGold;
+            labelText.Alignment = TextAnchor.MiddleCenter;
+            labelText.Style = FontStyle.Bold;
+            labelText.StretchToFill();
         }
 
-        private void CreateEquipmentGrid(Transform parent, float x, float y, float width, float height, float spacing)
+        private void CreateEquipmentGrid(RectTransform parent, float x, float y, float width, float height, float spacing)
         {
-            var containerGo = CreateUIObject("Equipment", parent);
-            var containerRect = containerGo.GetComponent<RectTransform>();
-            containerRect.anchorMin = new Vector2(0, 1);
-            containerRect.anchorMax = new Vector2(0, 1);
-            containerRect.pivot = new Vector2(0, 1);
-            containerRect.anchoredPosition = new Vector2(x, y);
-            containerRect.sizeDelta = new Vector2(width, height);
+            var panel = VeneerPanel.Create(parent, "Equipment", width, height);
+            panel.BackgroundColor = VeneerColors.BackgroundLight;
+            panel.ShowBorder = false;
 
-            // Background
-            var bg = containerGo.AddComponent<Image>();
-            bg.color = VeneerColors.BackgroundLight;
+            var panelRect = panel.RectTransform;
+            panelRect.anchorMin = new Vector2(0, 1);
+            panelRect.anchorMax = new Vector2(0, 1);
+            panelRect.pivot = new Vector2(0, 1);
+            panelRect.anchoredPosition = new Vector2(x, y);
 
-            var gridLayout = containerGo.AddComponent<GridLayoutGroup>();
+            var gridLayout = panel.gameObject.AddComponent<GridLayoutGroup>();
             gridLayout.cellSize = new Vector2(_slotSize, _slotSize);
             gridLayout.spacing = new Vector2(spacing, spacing);
             gridLayout.startCorner = GridLayoutGroup.Corner.UpperLeft;
@@ -261,25 +210,27 @@ namespace Veneer.Vanilla.Replacements
             string[] slotNames = { "Head", "Chest", "Legs", "Shoulder", "Utility", "Weapon", "Shield", "Ammo" };
             foreach (var name in slotNames)
             {
-                var slot = VeneerItemSlot.Create(containerGo.transform, _slotSize);
+                var slot = VeneerItemSlot.Create(panel.transform, _slotSize);
                 _equipmentSlots[name] = slot;
             }
         }
 
-        private VeneerItemGrid CreateItemGrid(Transform parent, string name, float x, float y, int cols, int rows, float spacing)
+        private VeneerItemGrid CreateItemGrid(RectTransform parent, string name, float x, float y, int cols, int rows, float spacing)
         {
             float gridWidth = _slotSize * cols + spacing * (cols - 1);
             float gridHeight = _slotSize * rows + spacing * (rows - 1);
 
-            var containerGo = CreateUIObject(name, parent);
-            var containerRect = containerGo.GetComponent<RectTransform>();
+            var container = VeneerPanel.Create(parent, name, gridWidth, gridHeight);
+            container.ShowBorder = false;
+            container.BackgroundColor = Color.clear;
+
+            var containerRect = container.RectTransform;
             containerRect.anchorMin = new Vector2(0, 1);
             containerRect.anchorMax = new Vector2(0, 1);
             containerRect.pivot = new Vector2(0, 1);
             containerRect.anchoredPosition = new Vector2(x, y);
-            containerRect.sizeDelta = new Vector2(gridWidth, gridHeight);
 
-            var grid = VeneerItemGrid.Create(containerGo.transform, cols, rows, _slotSize);
+            var grid = VeneerItemGrid.Create(container.transform, cols, rows, _slotSize);
 
             // Position grid at origin of container
             var gridRect = grid.GetComponent<RectTransform>();
@@ -291,36 +242,23 @@ namespace Veneer.Vanilla.Replacements
             return grid;
         }
 
-        private float CreateQuickSlots(Transform parent, float padding, float yPos, float width, float height, float spacing)
+        private void CreateWeightDisplay(RectTransform parent, float yPos, float width)
         {
-            float totalWidth = width;
-            float xPos = padding;
-
-            CreateSectionWithLabel(parent, "HOTBAR", xPos, yPos, totalWidth, LABEL_HEIGHT);
-            _quickSlotGrid = CreateItemGrid(parent, "QuickSlots", xPos, yPos - LABEL_HEIGHT - spacing, QUICKSLOT_COLS, 1, spacing);
-
-            return yPos - LABEL_HEIGHT - spacing - height;
-        }
-
-        private void CreateWeight(Transform parent, float padding, float yPos, float width)
-        {
-            var weightGo = CreateUIObject("Weight", parent);
-            var weightRect = weightGo.GetComponent<RectTransform>();
-            weightRect.anchorMin = new Vector2(0, 1);
-            weightRect.anchorMax = new Vector2(0, 1);
-            weightRect.pivot = new Vector2(0, 1);
-            weightRect.anchoredPosition = new Vector2(padding, yPos);
-            weightRect.sizeDelta = new Vector2(width, WEIGHT_HEIGHT);
-
-            _weightText = weightGo.AddComponent<VeneerText>();
-            _weightText.Content = "Weight: 0 / 300";
+            _weightText = VeneerText.Create(parent, "Weight: 0 / 300");
             _weightText.ApplyStyle(TextStyle.Caption);
             _weightText.Alignment = TextAnchor.MiddleRight;
+
+            var rect = _weightText.RectTransform;
+            rect.anchorMin = new Vector2(0, 1);
+            rect.anchorMax = new Vector2(0, 1);
+            rect.pivot = new Vector2(0, 1);
+            rect.anchoredPosition = new Vector2(0, yPos);
+            rect.sizeDelta = new Vector2(width, WEIGHT_HEIGHT);
         }
 
-        private void CreateContainerPanel()
+        private void CreateContainerFrame(Transform parent)
         {
-            float padding = 12f;
+            float padding = VeneerDimensions.Padding;
             float spacing = 4f;
             int containerCols = 8;
             int containerRows = 4;
@@ -328,53 +266,52 @@ namespace Veneer.Vanilla.Replacements
             float gridWidth = _slotSize * containerCols + spacing * (containerCols - 1);
             float gridHeight = _slotSize * containerRows + spacing * (containerRows - 1);
             float totalWidth = gridWidth + padding * 2;
-            float totalHeight = HEADER_HEIGHT + spacing + LABEL_HEIGHT + spacing + gridHeight + padding * 2;
+            // No CONTENTS label needed - header shows container name
+            float totalHeight = VeneerDimensions.WindowTitleHeight + gridHeight + padding * 2;
 
-            _containerPanel = CreateUIObject("ContainerPanel", transform.parent);
-            var containerRect = _containerPanel.GetComponent<RectTransform>();
-            containerRect.sizeDelta = new Vector2(totalWidth, totalHeight);
+            // Create container frame using VeneerFrame
+            _containerFrame = VeneerFrame.Create(parent, new FrameConfig
+            {
+                Id = ElementIdContainer,
+                Name = "ContainerFrame",
+                Title = "Container",
+                Width = totalWidth,
+                Height = totalHeight,
+                HasHeader = true,
+                HasCloseButton = true,
+                IsDraggable = true,
+                Moveable = true,
+                SavePosition = true,
+                Anchor = AnchorPreset.MiddleLeft,
+                Offset = new Vector2(20, 0)
+            });
 
-            // Background
-            var bg = _containerPanel.AddComponent<Image>();
-            bg.sprite = VeneerTextures.CreatePanelSprite();
-            bg.type = Image.Type.Sliced;
-            bg.color = VeneerColors.Background;
+            _containerFrame.OnCloseClicked += OnContainerWindowClosed;
 
-            // Border
-            CreateBorder(_containerPanel.transform);
+            // Build container content - grid directly in content area
+            var content = _containerFrame.Content;
 
-            float yPos = -padding;
+            // Grid starts at top of content
+            _containerGrid = CreateItemGrid(content, "ContainerGrid", 0, 0, containerCols, containerRows, spacing);
 
-            // Header
-            var headerGo = CreateUIObject("Header", _containerPanel.transform);
-            var headerRect = headerGo.GetComponent<RectTransform>();
-            headerRect.anchorMin = new Vector2(0, 1);
-            headerRect.anchorMax = new Vector2(0, 1);
-            headerRect.pivot = new Vector2(0, 1);
-            headerRect.anchoredPosition = new Vector2(padding, yPos);
-            headerRect.sizeDelta = new Vector2(gridWidth, HEADER_HEIGHT);
-
-            _containerTitle = headerGo.AddComponent<VeneerText>();
-            _containerTitle.Content = "Container";
-            _containerTitle.ApplyStyle(TextStyle.Header);
-            _containerTitle.Alignment = TextAnchor.MiddleCenter;
-
-            yPos -= HEADER_HEIGHT + spacing;
-
-            // Label
-            CreateSectionWithLabel(_containerPanel.transform, "CONTENTS", padding, yPos, gridWidth, LABEL_HEIGHT);
-            yPos -= LABEL_HEIGHT + spacing;
-
-            // Grid
-            _containerGrid = CreateItemGrid(_containerPanel.transform, "ContainerGrid", padding, yPos, containerCols, containerRows, spacing);
-
-            // Mover
-            var mover = _containerPanel.AddComponent<VeneerMover>();
-            mover.ElementId = ElementIdContainer;
-
+            // Register anchor
             VeneerAnchor.Register(ElementIdContainer, ScreenAnchor.Left, new Vector2(20, 0));
 
-            _containerPanel.SetActive(false);
+            _containerFrame.Hide();
+        }
+
+        private void OnInventoryWindowClosed()
+        {
+            // Close via vanilla to ensure proper cleanup
+            if (InventoryGui.instance != null && InventoryGui.IsVisible())
+            {
+                InventoryGui.instance.Hide();
+            }
+        }
+
+        private void OnContainerWindowClosed()
+        {
+            CloseContainer();
         }
 
         /// <summary>
@@ -389,6 +326,7 @@ namespace Veneer.Vanilla.Replacements
             UpdateEquipmentSlots();
             UpdateWeight();
 
+            _inventoryFrame.Show();
             base.Show();
         }
 
@@ -403,6 +341,7 @@ namespace Veneer.Vanilla.Replacements
             }
 
             CloseContainer();
+            _inventoryFrame.Hide();
             base.Hide();
         }
 
@@ -420,7 +359,7 @@ namespace Veneer.Vanilla.Replacements
 
             // Update title
             string containerName = container.m_name;
-            _containerTitle.Content = !string.IsNullOrEmpty(containerName)
+            _containerFrame.Title = !string.IsNullOrEmpty(containerName)
                 ? Localization.instance.Localize(containerName)
                 : "Container";
 
@@ -432,44 +371,20 @@ namespace Veneer.Vanilla.Replacements
             {
                 _containerGrid.Resize(cols, rows);
 
-                // Resize panel
-                float padding = 12f;
+                // Resize frame
+                float padding = VeneerDimensions.Padding;
                 float spacing = 4f;
                 float gridWidth = _slotSize * cols + spacing * (cols - 1);
                 float gridHeight = _slotSize * rows + spacing * (rows - 1);
                 float totalWidth = gridWidth + padding * 2;
-                float totalHeight = HEADER_HEIGHT + spacing + LABEL_HEIGHT + spacing + gridHeight + padding * 2;
+                // No CONTENTS label - header shows container name
+                float totalHeight = VeneerDimensions.WindowTitleHeight + gridHeight + padding * 2;
 
-                var containerRect = _containerPanel.GetComponent<RectTransform>();
-                containerRect.sizeDelta = new Vector2(totalWidth, totalHeight);
+                _containerFrame.SetSize(totalWidth, totalHeight);
             }
 
             _containerGrid.SetInventory(containerInventory);
-            PositionContainerPanel();
-            _containerPanel.SetActive(true);
-        }
-
-        private void PositionContainerPanel()
-        {
-            if (_containerPanel == null) return;
-
-            var containerRect = _containerPanel.GetComponent<RectTransform>();
-
-            var savedData = VeneerAnchor.GetAnchorData(ElementIdContainer);
-            if (savedData != null)
-            {
-                VeneerAnchor.ApplyAnchor(containerRect, savedData.Anchor, savedData.Offset);
-            }
-            else
-            {
-                containerRect.anchorMin = new Vector2(0.5f, 0.5f);
-                containerRect.anchorMax = new Vector2(0.5f, 0.5f);
-                containerRect.pivot = new Vector2(1, 0.5f);
-
-                Vector3[] corners = new Vector3[4];
-                RectTransform.GetWorldCorners(corners);
-                containerRect.position = new Vector3(corners[0].x - 20, RectTransform.position.y, 0);
-            }
+            _containerFrame.Show();
         }
 
         /// <summary>
@@ -478,7 +393,7 @@ namespace Veneer.Vanilla.Replacements
         public void CloseContainer()
         {
             _openContainer = null;
-            if (_containerPanel != null) _containerPanel.SetActive(false);
+            if (_containerFrame != null) _containerFrame.Hide();
             if (_containerGrid != null) _containerGrid.SetInventory(null);
         }
 
@@ -486,11 +401,11 @@ namespace Veneer.Vanilla.Replacements
         {
             if (!IsVisible || _player == null) return;
 
-            _inventoryGrid.UpdateAllSlots();
+            _inventoryGrid?.UpdateAllSlots();
             UpdateEquipmentSlots();
             UpdateWeight();
 
-            if (_openContainer != null && _containerGrid != null && _containerPanel.activeSelf)
+            if (_openContainer != null && _containerGrid != null && _containerFrame.IsVisible)
             {
                 _containerGrid.UpdateAllSlots();
             }
@@ -550,9 +465,13 @@ namespace Veneer.Vanilla.Replacements
 
         protected override void OnDestroy()
         {
-            if (_containerPanel != null)
+            if (_containerFrame != null)
             {
-                Destroy(_containerPanel);
+                Destroy(_containerFrame.gameObject);
+            }
+            if (_inventoryFrame != null)
+            {
+                Destroy(_inventoryFrame.gameObject);
             }
             base.OnDestroy();
         }

@@ -1,10 +1,8 @@
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
-using UnityEngine.EventSystems;
 using UnityEngine.UI;
 using Veneer.Components.Base;
-using Veneer.Components.Primitives;
 using Veneer.Core;
 using Veneer.Grid;
 using Veneer.Theme;
@@ -14,24 +12,18 @@ namespace Veneer.Vanilla.Replacements
     /// <summary>
     /// Skills panel replacement.
     /// Features large icons, circular XP progress, and level badges.
+    /// Uses VeneerFrame for consistent header/dragging/close button.
     /// </summary>
     public class VeneerSkillsPanel : VeneerElement
     {
         private const string ElementIdSkills = "Veneer_Skills";
 
-        private Image _backgroundImage;
-        private Image _borderImage;
-        private VeneerText _titleText;
-        private VeneerButton _closeButton;
+        private VeneerFrame _frame;
         private RectTransform _skillsContent;
         private ScrollRect _scrollRect;
 
         private List<SkillCard> _skillCards = new List<SkillCard>();
         private Player _player;
-
-        // Dragging
-        private bool _isDragging;
-        private Vector2 _dragOffset;
 
         /// <summary>
         /// Creates the skills panel.
@@ -52,83 +44,45 @@ namespace Veneer.Vanilla.Replacements
             LayerType = VeneerLayerType.Window;
             AutoRegisterWithManager = true;
 
-            VeneerAnchor.Register(ElementId, ScreenAnchor.Center, Vector2.zero);
-
             float width = 500f;
             float height = 520f;
-            float padding = VeneerDimensions.PaddingLarge;
-            float headerHeight = 35f;
 
+            // Make this container fill the frame
             SetSize(width, height);
             AnchorTo(AnchorPreset.MiddleCenter);
 
-            // Background
-            _backgroundImage = gameObject.AddComponent<Image>();
-            _backgroundImage.sprite = VeneerTextures.CreatePanelSprite();
-            _backgroundImage.type = Image.Type.Sliced;
-            _backgroundImage.color = VeneerColors.Background;
+            // Create VeneerFrame with header, close button, and dragging
+            _frame = VeneerFrame.Create(transform, new FrameConfig
+            {
+                Id = ElementIdSkills,
+                Name = "SkillsFrame",
+                Title = "Skills",
+                Width = width,
+                Height = height,
+                HasHeader = true,
+                HasCloseButton = true,
+                IsDraggable = true,
+                Moveable = true,
+                SavePosition = true,
+                Anchor = AnchorPreset.MiddleCenter
+            });
 
-            // Border
-            var borderGo = CreateUIObject("Border", transform);
-            var borderRect = borderGo.GetComponent<RectTransform>();
-            borderRect.anchorMin = Vector2.zero;
-            borderRect.anchorMax = Vector2.one;
-            borderRect.offsetMin = Vector2.zero;
-            borderRect.offsetMax = Vector2.zero;
+            // Fill parent
+            _frame.RectTransform.anchorMin = Vector2.zero;
+            _frame.RectTransform.anchorMax = Vector2.one;
+            _frame.RectTransform.offsetMin = Vector2.zero;
+            _frame.RectTransform.offsetMax = Vector2.zero;
 
-            _borderImage = borderGo.AddComponent<Image>();
-            var borderTex = VeneerTextures.CreateSlicedBorderTexture(16, VeneerColors.Border, Color.clear, 1);
-            _borderImage.sprite = VeneerTextures.CreateSlicedSprite(borderTex, 1);
-            _borderImage.type = Image.Type.Sliced;
-            _borderImage.raycastTarget = false;
+            // Connect close event
+            _frame.OnCloseClicked += Hide;
 
-            // Header with drag handle
-            var headerGo = CreateUIObject("Header", transform);
-            var headerRect = headerGo.GetComponent<RectTransform>();
-            headerRect.anchorMin = new Vector2(0, 1);
-            headerRect.anchorMax = new Vector2(1, 1);
-            headerRect.pivot = new Vector2(0.5f, 1);
-            headerRect.anchoredPosition = Vector2.zero;
-            headerRect.sizeDelta = new Vector2(0, headerHeight);
-
-            var headerBg = headerGo.AddComponent<Image>();
-            headerBg.color = VeneerColors.BackgroundDark;
-
-            // Add drag handler to header
-            var dragHandler = headerGo.AddComponent<SkillsPanelDragHandler>();
-            dragHandler.Target = this;
-
-            // Title
-            var titleGo = CreateUIObject("Title", headerGo.transform);
-            var titleRect = titleGo.GetComponent<RectTransform>();
-            titleRect.anchorMin = new Vector2(0, 0);
-            titleRect.anchorMax = new Vector2(1, 1);
-            titleRect.offsetMin = new Vector2(padding, 0);
-            titleRect.offsetMax = new Vector2(-50, 0);
-
-            _titleText = titleGo.AddComponent<VeneerText>();
-            _titleText.Content = "Skills";
-            _titleText.ApplyStyle(TextStyle.Header);
-            _titleText.Alignment = TextAnchor.MiddleCenter;
-
-            // Close button
-            _closeButton = VeneerButton.Create(headerGo.transform, "X", () => Hide());
-            _closeButton.SetButtonSize(ButtonSize.Small);
-            _closeButton.SetStyle(ButtonStyle.Ghost);
-            var closeRect = _closeButton.RectTransform;
-            closeRect.anchorMin = new Vector2(1, 0.5f);
-            closeRect.anchorMax = new Vector2(1, 0.5f);
-            closeRect.pivot = new Vector2(1, 0.5f);
-            closeRect.anchoredPosition = new Vector2(-8, 0);
-            closeRect.sizeDelta = new Vector2(28, 24);
-
-            // Scroll view
-            var scrollGo = CreateUIObject("ScrollView", transform);
+            // Scroll view inside frame content
+            var scrollGo = CreateUIObject("ScrollView", _frame.Content);
             var scrollViewRect = scrollGo.GetComponent<RectTransform>();
             scrollViewRect.anchorMin = Vector2.zero;
             scrollViewRect.anchorMax = Vector2.one;
-            scrollViewRect.offsetMin = new Vector2(padding, padding);
-            scrollViewRect.offsetMax = new Vector2(-padding, -padding - headerHeight - 5);
+            scrollViewRect.offsetMin = Vector2.zero;
+            scrollViewRect.offsetMax = Vector2.zero;
 
             _scrollRect = scrollGo.AddComponent<ScrollRect>();
             _scrollRect.horizontal = false;
@@ -175,10 +129,6 @@ namespace Veneer.Vanilla.Replacements
 
             _scrollRect.content = _skillsContent;
 
-            // Add mover
-            var mover = gameObject.AddComponent<VeneerMover>();
-            mover.ElementId = ElementId;
-
             // Add resizer
             var resizer = gameObject.AddComponent<VeneerResizer>();
             resizer.MinSize = new Vector2(350, 350);
@@ -187,13 +137,6 @@ namespace Veneer.Vanilla.Replacements
             // Start hidden - must register BEFORE SetActive(false) since Start() won't be called
             RegisterWithManager();
             gameObject.SetActive(false);
-
-            // Apply saved position
-            var savedData = VeneerAnchor.GetAnchorData(ElementId);
-            if (savedData != null)
-            {
-                VeneerAnchor.ApplyAnchor(RectTransform, savedData.Anchor, savedData.Offset);
-            }
         }
 
         /// <summary>
@@ -397,59 +340,6 @@ namespace Veneer.Vanilla.Replacements
             public Text LevelText;
             public RectTransform ProgressFill;
             public Text ProgressText;
-        }
-
-        // Drag handling for the panel
-        internal void OnBeginPanelDrag(PointerEventData eventData)
-        {
-            _isDragging = true;
-            RectTransformUtility.ScreenPointToLocalPointInRectangle(
-                transform.parent as RectTransform,
-                eventData.position,
-                eventData.pressEventCamera,
-                out var localPoint);
-            _dragOffset = RectTransform.anchoredPosition - localPoint;
-        }
-
-        internal void OnPanelDrag(PointerEventData eventData)
-        {
-            if (!_isDragging) return;
-
-            RectTransformUtility.ScreenPointToLocalPointInRectangle(
-                transform.parent as RectTransform,
-                eventData.position,
-                eventData.pressEventCamera,
-                out var localPoint);
-
-            RectTransform.anchoredPosition = localPoint + _dragOffset;
-        }
-
-        internal void OnEndPanelDrag(PointerEventData eventData)
-        {
-            _isDragging = false;
-        }
-    }
-
-    /// <summary>
-    /// Helper component for dragging the skills panel by its header.
-    /// </summary>
-    public class SkillsPanelDragHandler : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDragHandler
-    {
-        public VeneerSkillsPanel Target { get; set; }
-
-        public void OnBeginDrag(PointerEventData eventData)
-        {
-            Target?.OnBeginPanelDrag(eventData);
-        }
-
-        public void OnDrag(PointerEventData eventData)
-        {
-            Target?.OnPanelDrag(eventData);
-        }
-
-        public void OnEndDrag(PointerEventData eventData)
-        {
-            Target?.OnEndPanelDrag(eventData);
         }
     }
 }

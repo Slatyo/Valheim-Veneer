@@ -1,9 +1,6 @@
-using System.Collections;
 using UnityEngine;
-using UnityEngine.EventSystems;
 using UnityEngine.UI;
 using Veneer.Components.Base;
-using Veneer.Components.Primitives;
 using Veneer.Core;
 using Veneer.Grid;
 using Veneer.Theme;
@@ -13,19 +10,14 @@ namespace Veneer.Vanilla.Replacements
     /// <summary>
     /// Large map frame with Veneer styling.
     /// Wraps the vanilla large map in a moveable/resizable Veneer window.
-    /// NOTE: This class does NOT implement drag handlers - they are on the header only,
-    /// so drag events on the map area pass through to vanilla for pan functionality.
+    /// Uses VeneerFrame for consistent header/dragging/close button.
+    /// NOTE: The map container area allows pointer events through to vanilla for pan/zoom.
     /// </summary>
     public class VeneerLargeMapFrame : VeneerElement
     {
         private const string ElementIdLargeMap = "Veneer_LargeMap";
 
-        private Image _backgroundImage;
-        private Image _borderImage;
-        private RectTransform _headerRect;
-        private VeneerText _titleText;
-        private VeneerButton _closeButton;
-        private MapFrameHeaderDragger _headerDragger;
+        private VeneerFrame _frame;
         private RectTransform _mapContainerRect;
 
         // Vanilla map reference
@@ -58,90 +50,54 @@ namespace Veneer.Vanilla.Replacements
             LayerType = VeneerLayerType.Popup;
             AutoRegisterWithManager = true;
 
-            VeneerAnchor.Register(ElementId, ScreenAnchor.Center, Vector2.zero);
-
             // Default size - can be resized
             float width = 900f;
             float height = 850f;
             float padding = 4f;
-            float headerHeight = 32f;
 
             SetSize(width, height);
             AnchorTo(AnchorPreset.MiddleCenter);
 
-            // Background - set raycastTarget to false so clicks pass through to vanilla map
-            _backgroundImage = gameObject.AddComponent<Image>();
-            _backgroundImage.sprite = VeneerTextures.CreatePanelSprite();
-            _backgroundImage.type = Image.Type.Sliced;
-            _backgroundImage.color = VeneerColors.BackgroundSolid;
-            _backgroundImage.raycastTarget = false; // Let clicks through to vanilla map for pan/zoom
+            // Create VeneerFrame with header, close button, and dragging
+            _frame = VeneerFrame.Create(transform, new FrameConfig
+            {
+                Id = ElementIdLargeMap,
+                Name = "LargeMapFrameInner",
+                Title = "World Map",
+                Width = width,
+                Height = height,
+                HasHeader = true,
+                HasCloseButton = true,
+                IsDraggable = true,
+                Moveable = true,
+                SavePosition = true,
+                Anchor = AnchorPreset.MiddleCenter
+            });
 
-            // Border
-            var borderGo = CreateUIObject("Border", transform);
-            var borderRect = borderGo.GetComponent<RectTransform>();
-            borderRect.anchorMin = Vector2.zero;
-            borderRect.anchorMax = Vector2.one;
-            borderRect.offsetMin = Vector2.zero;
-            borderRect.offsetMax = Vector2.zero;
+            // Fill parent
+            _frame.RectTransform.anchorMin = Vector2.zero;
+            _frame.RectTransform.anchorMax = Vector2.one;
+            _frame.RectTransform.offsetMin = Vector2.zero;
+            _frame.RectTransform.offsetMax = Vector2.zero;
 
-            _borderImage = borderGo.AddComponent<Image>();
-            var borderTex = VeneerTextures.CreateSlicedBorderTexture(16, VeneerColors.Accent, Color.clear, 2);
-            _borderImage.sprite = VeneerTextures.CreateSlicedSprite(borderTex, 2);
-            _borderImage.type = Image.Type.Sliced;
-            _borderImage.raycastTarget = false;
+            // Connect close event to vanilla map close
+            _frame.OnCloseClicked += OnCloseClicked;
 
-            // Header (draggable) - has its own drag handler so map area drags pass through
-            var headerGo = CreateUIObject("Header", transform);
-            _headerRect = headerGo.GetComponent<RectTransform>();
-            _headerRect.anchorMin = new Vector2(0, 1);
-            _headerRect.anchorMax = new Vector2(1, 1);
-            _headerRect.pivot = new Vector2(0.5f, 1);
-            _headerRect.anchoredPosition = Vector2.zero;
-            _headerRect.sizeDelta = new Vector2(0, headerHeight);
+            // Override background to not block clicks for map pan/zoom
+            // VeneerFrame's background is on the frame itself, set it to not receive raycasts
+            var frameImage = _frame.GetComponent<Image>();
+            if (frameImage != null)
+            {
+                frameImage.raycastTarget = false;
+            }
 
-            var headerBg = headerGo.AddComponent<Image>();
-            headerBg.color = VeneerColors.BackgroundDark;
-            headerBg.raycastTarget = true; // Header catches clicks/drags
-
-            // Add drag handler to header only - this way map area drags go to vanilla
-            _headerDragger = headerGo.AddComponent<MapFrameHeaderDragger>();
-            _headerDragger.Initialize(this);
-
-            // Title
-            var titleGo = CreateUIObject("Title", headerGo.transform);
-            var titleRect = titleGo.GetComponent<RectTransform>();
-            titleRect.anchorMin = Vector2.zero;
-            titleRect.anchorMax = Vector2.one;
-            titleRect.offsetMin = new Vector2(padding + 8, 0);
-            titleRect.offsetMax = new Vector2(-40, 0);
-
-            _titleText = titleGo.AddComponent<VeneerText>();
-            _titleText.Content = "World Map";
-            _titleText.ApplyStyle(TextStyle.Header);
-            _titleText.Alignment = TextAnchor.MiddleLeft;
-
-            // Close button
-            _closeButton = VeneerButton.Create(headerGo.transform, "X", OnCloseClicked);
-            _closeButton.SetButtonSize(ButtonSize.Small);
-            _closeButton.SetStyle(ButtonStyle.Ghost);
-            var closeRect = _closeButton.RectTransform;
-            closeRect.anchorMin = new Vector2(1, 0.5f);
-            closeRect.anchorMax = new Vector2(1, 0.5f);
-            closeRect.pivot = new Vector2(1, 0.5f);
-            closeRect.anchoredPosition = new Vector2(-6, 0);
-            closeRect.sizeDelta = new Vector2(26, 24);
-
-            // Map container (where vanilla map will be placed)
-            var containerGo = CreateUIObject("MapContainer", transform);
+            // Map container (where vanilla map will be placed) - in frame's content
+            var containerGo = CreateUIObject("MapContainer", _frame.Content);
             _mapContainerRect = containerGo.GetComponent<RectTransform>();
             _mapContainerRect.anchorMin = Vector2.zero;
             _mapContainerRect.anchorMax = Vector2.one;
             _mapContainerRect.offsetMin = new Vector2(padding, padding);
-            _mapContainerRect.offsetMax = new Vector2(-padding, -headerHeight);
-
-            // Add mover for edit mode
-            var mover = gameObject.AddComponent<VeneerMover>();
-            mover.ElementId = ElementId;
+            _mapContainerRect.offsetMax = new Vector2(-padding, -padding);
 
             // Add resizer
             var resizer = gameObject.AddComponent<VeneerResizer>();
@@ -151,17 +107,6 @@ namespace Veneer.Vanilla.Replacements
             // Start hidden - must register BEFORE SetActive(false) since Start() won't be called
             RegisterWithManager();
             gameObject.SetActive(false);
-
-            // Apply saved position/size
-            var savedData = VeneerAnchor.GetAnchorData(ElementId);
-            if (savedData != null)
-            {
-                VeneerAnchor.ApplyAnchor(RectTransform, savedData.Anchor, savedData.Offset);
-                if (savedData.Size != Vector2.zero)
-                {
-                    SetSize(savedData.Size.x, savedData.Size.y);
-                }
-            }
 
             Plugin.Log.LogDebug("VeneerLargeMapFrame: Initialized");
         }
@@ -173,14 +118,6 @@ namespace Veneer.Vanilla.Replacements
             {
                 Minimap.instance.SetMapMode(Minimap.MapMode.Small);
             }
-        }
-
-        /// <summary>
-        /// Called by header dragger when drag ends to save position.
-        /// </summary>
-        public void SaveCurrentPosition()
-        {
-            VeneerAnchor.UpdatePosition(ElementId, ScreenAnchor.Center, RectTransform.anchoredPosition, RectTransform.sizeDelta);
         }
 
         /// <summary>
@@ -205,16 +142,8 @@ namespace Veneer.Vanilla.Replacements
             _originalAnchoredPosition = _vanillaLargeMapRect.anchoredPosition;
             _originalSizeDelta = _vanillaLargeMapRect.sizeDelta;
 
-            // Find our container
-            var container = transform.Find("MapContainer");
-            if (container == null)
-            {
-                Plugin.Log.LogError("VeneerLargeMapFrame: MapContainer not found");
-                return;
-            }
-
             // Reparent vanilla map to our container
-            _vanillaLargeMapRect.SetParent(container, false);
+            _vanillaLargeMapRect.SetParent(_mapContainerRect, false);
 
             // Fill the container
             _vanillaLargeMapRect.anchorMin = Vector2.zero;
@@ -285,78 +214,4 @@ namespace Veneer.Vanilla.Replacements
             base.OnDestroy();
         }
     }
-
-    /// <summary>
-    /// Separate drag handler for the map frame header.
-    /// By having this on the header GameObject only, drags on the map area
-    /// pass through to the vanilla map for panning.
-    /// </summary>
-    public class MapFrameHeaderDragger : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDragHandler
-    {
-        private VeneerLargeMapFrame _frame;
-        private RectTransform _frameRect;
-        private Canvas _canvas;
-        private RectTransform _canvasRect;
-        private Vector2 _dragOffset;
-        private bool _isDragging;
-
-        public void Initialize(VeneerLargeMapFrame frame)
-        {
-            _frame = frame;
-            _frameRect = frame.RectTransform;
-        }
-
-        public void OnBeginDrag(PointerEventData eventData)
-        {
-            _isDragging = true;
-
-            // Cache canvas
-            if (_canvas == null || _canvasRect == null)
-            {
-                _canvas = _frame.GetComponentInParent<Canvas>();
-                if (_canvas != null)
-                {
-                    _canvasRect = _canvas.GetComponent<RectTransform>();
-                }
-            }
-
-            if (_canvasRect != null)
-            {
-                RectTransformUtility.ScreenPointToLocalPointInRectangle(
-                    _canvasRect,
-                    eventData.position,
-                    eventData.pressEventCamera,
-                    out var localPoint);
-
-                _dragOffset = _frameRect.anchoredPosition - localPoint;
-            }
-
-            // Bring frame to front
-            _frame.BringToFront();
-        }
-
-        public void OnDrag(PointerEventData eventData)
-        {
-            if (!_isDragging) return;
-            if (_canvasRect == null) return;
-
-            RectTransformUtility.ScreenPointToLocalPointInRectangle(
-                _canvasRect,
-                eventData.position,
-                eventData.pressEventCamera,
-                out var localPoint);
-
-            _frameRect.anchoredPosition = localPoint + _dragOffset;
-        }
-
-        public void OnEndDrag(PointerEventData eventData)
-        {
-            if (!_isDragging) return;
-            _isDragging = false;
-
-            // Save position
-            _frame.SaveCurrentPosition();
-        }
-    }
-
 }

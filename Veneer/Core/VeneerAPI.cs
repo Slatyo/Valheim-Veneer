@@ -250,25 +250,22 @@ namespace Veneer.Core
         #region Window Creation
 
         /// <summary>
-        /// Creates a new window with the specified configuration.
+        /// Creates a new window (frame with header, close button, draggable).
         /// </summary>
-        public static VeneerWindow CreateWindow(WindowConfig config)
+        public static VeneerFrame CreateWindow(string id, string title, float width = 400, float height = 300)
         {
             EnsureInitialized();
-            return VeneerWindow.Create(_uiRoot, config);
-        }
-
-        /// <summary>
-        /// Creates a simple window.
-        /// </summary>
-        public static VeneerWindow CreateWindow(string id, string title, float width = 400, float height = 300)
-        {
-            return CreateWindow(new WindowConfig
+            return VeneerFrame.Create(_uiRoot, new FrameConfig
             {
                 Id = id,
                 Title = title,
                 Width = width,
-                Height = height
+                Height = height,
+                HasHeader = true,
+                HasCloseButton = true,
+                IsDraggable = true,
+                Moveable = true,
+                SavePosition = true
             });
         }
 
