@@ -533,6 +533,23 @@ namespace Veneer.Core
             VeneerTooltip.UnregisterProvider(provider);
         }
 
+        /// <summary>
+        /// Registers a visual provider that can modify item slot appearance (border color, etc).
+        /// Providers are called in order of priority (lowest first).
+        /// </summary>
+        public static void RegisterSlotVisualProvider(IItemSlotVisualProvider provider)
+        {
+            VeneerItemSlot.RegisterVisualProvider(provider);
+        }
+
+        /// <summary>
+        /// Unregisters a slot visual provider.
+        /// </summary>
+        public static void UnregisterSlotVisualProvider(IItemSlotVisualProvider provider)
+        {
+            VeneerItemSlot.UnregisterVisualProvider(provider);
+        }
+
         #endregion
 
         #region Grid System

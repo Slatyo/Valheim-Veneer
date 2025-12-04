@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -10,11 +11,78 @@ using Veneer.Theme;
 namespace Veneer.Components.Specialized
 {
     /// <summary>
+    /// Context passed to slot visual providers when updating item slot appearance.
+    /// </summary>
+    public class ItemSlotVisualContext
+    {
+        /// <summary>
+        /// The item in the slot (may be null for empty slots).
+        /// </summary>
+        public ItemDrop.ItemData Item { get; set; }
+
+        /// <summary>
+        /// Border color to use. Set to override default behavior.
+        /// </summary>
+        public Color? BorderColor { get; set; }
+
+        /// <summary>
+        /// Rarity tier for border color (1-5). Set to override default behavior.
+        /// Takes precedence over BorderColor if both are set.
+        /// </summary>
+        public int? RarityTier { get; set; }
+    }
+
+    /// <summary>
+    /// Interface for providers that can modify item slot visuals.
+    /// </summary>
+    public interface IItemSlotVisualProvider
+    {
+        /// <summary>
+        /// Priority for ordering providers. Higher values run later.
+        /// </summary>
+        int Priority { get; }
+
+        /// <summary>
+        /// Modifies the visual context for an item slot.
+        /// </summary>
+        void ModifyVisuals(ItemSlotVisualContext context);
+    }
+
+    /// <summary>
     /// Item slot component for inventory grids.
     /// Handles item display, interaction, and tooltips.
     /// </summary>
     public class VeneerItemSlot : VeneerElement, IPointerEnterHandler, IPointerExitHandler, IPointerClickHandler, IBeginDragHandler, IDragHandler, IEndDragHandler
     {
+        private static readonly List<IItemSlotVisualProvider> _visualProviders = new List<IItemSlotVisualProvider>();
+
+        /// <summary>
+        /// Registers a visual provider that will be called when item slots update their appearance.
+        /// </summary>
+        public static void RegisterVisualProvider(IItemSlotVisualProvider provider)
+        {
+            if (provider == null) return;
+
+            int index = 0;
+            for (; index < _visualProviders.Count; index++)
+            {
+                if (_visualProviders[index].Priority > provider.Priority)
+                    break;
+            }
+            _visualProviders.Insert(index, provider);
+            Plugin.Log.LogInfo($"[VeneerItemSlot] Registered visual provider: {provider.GetType().Name} (priority {provider.Priority})");
+        }
+
+        /// <summary>
+        /// Unregisters a visual provider.
+        /// </summary>
+        public static void UnregisterVisualProvider(IItemSlotVisualProvider provider)
+        {
+            if (provider == null) return;
+            _visualProviders.Remove(provider);
+            Plugin.Log.LogInfo($"[VeneerItemSlot] Unregistered visual provider: {provider.GetType().Name}");
+        }
+
         private Image _backgroundImage;
         private Image _borderImage;
         private Image _iconImage;
@@ -252,15 +320,41 @@ namespace Veneer.Components.Specialized
             bool isEquipped = _item.m_equipped;
             _equippedIndicator.gameObject.SetActive(isEquipped);
 
-            // Quality/rarity border
-            int quality = _item.m_quality;
-            if (quality > 1)
+            // Build visual context and let providers modify it
+            var visualContext = new ItemSlotVisualContext { Item = _item };
+            foreach (var provider in _visualProviders)
             {
-                _borderImage.color = VeneerColors.GetRarityColor(Mathf.Min(quality, 5));
+                try
+                {
+                    provider.ModifyVisuals(visualContext);
+                }
+                catch (Exception ex)
+                {
+                    Plugin.Log.LogError($"[VeneerItemSlot] Visual provider {provider.GetType().Name} threw exception: {ex.Message}");
+                }
+            }
+
+            // Apply border color from providers or fall back to quality-based
+            if (visualContext.RarityTier.HasValue)
+            {
+                _borderImage.color = VeneerColors.GetRarityColor(visualContext.RarityTier.Value);
+            }
+            else if (visualContext.BorderColor.HasValue)
+            {
+                _borderImage.color = visualContext.BorderColor.Value;
             }
             else
             {
-                _borderImage.color = VeneerColors.SlotBorder;
+                // Default: quality-based border
+                int quality = _item.m_quality;
+                if (quality > 1)
+                {
+                    _borderImage.color = VeneerColors.GetRarityColor(Mathf.Min(quality, 5));
+                }
+                else
+                {
+                    _borderImage.color = VeneerColors.SlotBorder;
+                }
             }
 
             _backgroundImage.color = _isHovered ? VeneerColors.SlotHover : VeneerColors.SlotEmpty;
