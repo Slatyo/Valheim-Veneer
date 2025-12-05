@@ -53,9 +53,10 @@ namespace Veneer.Vanilla.Replacements
             AnchorTo(AnchorPreset.MiddleCenter);
 
             // Create VeneerFrame with header, close button, and dragging
+            // Note: No Id on child frame - the wrapper (this panel) handles positioning via VeneerMover
             _frame = VeneerFrame.Create(transform, new FrameConfig
             {
-                Id = ElementIdTrophies,
+                // Id intentionally not set - wrapper handles edit mode positioning
                 Name = "TrophiesFrame",
                 Title = "Trophies",
                 Width = width,
@@ -63,10 +64,13 @@ namespace Veneer.Vanilla.Replacements
                 HasHeader = true,
                 HasCloseButton = true,
                 IsDraggable = true,
-                Moveable = true,
-                SavePosition = true,
+                SavePosition = false,
                 Anchor = AnchorPreset.MiddleCenter
             });
+
+            // Add VeneerMover to THIS wrapper panel (not the child frame)
+            var mover = gameObject.AddComponent<VeneerMover>();
+            mover.ElementId = ElementId;
 
             // Fill parent
             _frame.RectTransform.anchorMin = Vector2.zero;

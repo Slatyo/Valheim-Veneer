@@ -145,7 +145,7 @@ namespace Veneer.Components.Base
         private void Initialize(FrameConfig config)
         {
             ElementId = config.Id;
-            IsMoveable = config.Moveable;
+            IsMoveable = true; // Always moveable in edit mode now
             SavePosition = config.SavePosition;
 
             _hasHeader = config.HasHeader;
@@ -201,11 +201,25 @@ namespace Veneer.Components.Base
                 }
             }
 
-            // Add edit mode mover if moveable
-            if (config.Moveable && !string.IsNullOrEmpty(config.Id))
+            // Always add VeneerMover for edit mode positioning (if we have an Id)
+            // VeneerMover handles Edit Mode dragging - always available
+            // IsDraggable controls normal gameplay dragging (header drag)
+            if (!string.IsNullOrEmpty(config.Id))
             {
                 var mover = gameObject.AddComponent<VeneerMover>();
                 mover.ElementId = config.Id;
+
+                // Always add VeneerResizer for edit mode resizing
+                // Uses config min/max if provided, otherwise reasonable defaults based on frame size
+                var resizer = gameObject.AddComponent<VeneerResizer>();
+                resizer.MinSize = config.MinSize ?? new Vector2(
+                    Mathf.Max(100, config.Width * 0.5f),
+                    Mathf.Max(50, config.Height * 0.5f)
+                );
+                resizer.MaxSize = config.MaxSize ?? new Vector2(
+                    Mathf.Max(config.Width * 2f, 800),
+                    Mathf.Max(config.Height * 2f, 600)
+                );
             }
         }
 
@@ -630,7 +644,8 @@ namespace Veneer.Components.Base
         public bool HasCloseButton { get; set; } = false;
 
         /// <summary>
-        /// Whether the frame can be dragged (drags from header if present, else anywhere).
+        /// Whether the frame can be dragged during normal gameplay (drags from header if present, else anywhere).
+        /// Note: Edit Mode dragging (F8) is always available via VeneerMover regardless of this setting.
         /// </summary>
         public bool IsDraggable { get; set; } = false;
 
@@ -660,13 +675,25 @@ namespace Veneer.Components.Base
         public Vector2 Offset { get; set; }
 
         /// <summary>
-        /// Whether this frame can be moved in edit mode.
+        /// [DEPRECATED] VeneerMover is now always added when Id is set.
+        /// This property is kept for backward compatibility but has no effect.
         /// </summary>
+        [System.Obsolete("VeneerMover is now always added when Id is set. This property has no effect.")]
         public bool Moveable { get; set; } = false;
 
         /// <summary>
         /// Whether to save the position.
         /// </summary>
         public bool SavePosition { get; set; } = false;
+
+        /// <summary>
+        /// Optional minimum size for resizing. If null, defaults to 50% of initial size (min 100x50).
+        /// </summary>
+        public Vector2? MinSize { get; set; }
+
+        /// <summary>
+        /// Optional maximum size for resizing. If null, defaults to 200% of initial size (max 800x600).
+        /// </summary>
+        public Vector2? MaxSize { get; set; }
     }
 }

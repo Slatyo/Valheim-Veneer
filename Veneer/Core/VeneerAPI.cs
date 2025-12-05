@@ -163,6 +163,8 @@ namespace Veneer.Core
 
         private static void HideEditModePanel()
         {
+            // Reset edit mode visibility state before hiding
+            _editModePanel?.ResetEditModeState();
             _editModePanel?.Hide();
         }
 
@@ -264,7 +266,6 @@ namespace Veneer.Core
                 HasHeader = true,
                 HasCloseButton = true,
                 IsDraggable = true,
-                Moveable = true,
                 SavePosition = true
             });
         }
@@ -294,7 +295,6 @@ namespace Veneer.Core
                 Height = height,
                 Anchor = anchor,
                 Offset = offset,
-                Moveable = true,
                 SavePosition = true
             });
         }

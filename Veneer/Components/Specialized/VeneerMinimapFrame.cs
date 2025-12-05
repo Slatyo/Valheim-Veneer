@@ -104,6 +104,11 @@ namespace Veneer.Components.Specialized
             var mover = gameObject.AddComponent<VeneerMover>();
             mover.ElementId = ElementId;
 
+            // Add resizer
+            var resizer = gameObject.AddComponent<VeneerResizer>();
+            resizer.MinSize = new Vector2(100, 100);
+            resizer.MaxSize = new Vector2(500, 500);
+
             // Apply saved position
             var savedData = VeneerAnchor.GetAnchorData(ElementId);
             if (savedData != null)

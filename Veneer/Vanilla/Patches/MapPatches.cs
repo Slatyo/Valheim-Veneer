@@ -130,6 +130,21 @@ namespace Veneer.Vanilla.Patches
         }
 
         /// <summary>
+        /// Initialize the large map frame when Minimap starts.
+        /// This ensures the frame is created early so it appears in Edit Mode.
+        /// </summary>
+        [HarmonyPatch(typeof(Minimap), "Start")]
+        [HarmonyPostfix]
+        public static void Minimap_Start_Postfix()
+        {
+            if (!VeneerConfig.Enabled.Value) return;
+            if (!VeneerConfig.ReplaceMap.Value) return;
+
+            // Create frame eagerly so it's available in Edit Mode
+            EnsureLargeMapFrame();
+        }
+
+        /// <summary>
         /// Creates the Veneer large map frame if needed.
         /// </summary>
         private static void EnsureLargeMapFrame()

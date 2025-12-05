@@ -103,6 +103,11 @@ namespace Veneer.Components.Specialized
             var mover = gameObject.AddComponent<VeneerMover>();
             mover.ElementId = ElementId;
 
+            // Add resizer
+            var resizer = gameObject.AddComponent<VeneerResizer>();
+            resizer.MinSize = new Vector2(150, 40);
+            resizer.MaxSize = new Vector2(400, 400);
+
             // Start hidden
             gameObject.SetActive(false);
 

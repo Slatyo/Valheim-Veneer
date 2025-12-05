@@ -113,7 +113,6 @@ namespace Veneer.Vanilla.Replacements
                 HasHeader = true,
                 HasCloseButton = true,
                 IsDraggable = true,
-                Moveable = true,
                 SavePosition = true,
                 Anchor = AnchorPreset.MiddleRight,
                 Offset = new Vector2(-20, 0)
@@ -280,7 +279,6 @@ namespace Veneer.Vanilla.Replacements
                 HasHeader = true,
                 HasCloseButton = true,
                 IsDraggable = true,
-                Moveable = true,
                 SavePosition = true,
                 Anchor = AnchorPreset.MiddleLeft,
                 Offset = new Vector2(20, 0)

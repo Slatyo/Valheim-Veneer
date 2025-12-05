@@ -26,6 +26,11 @@ namespace Veneer.Grid
         public static event Action<bool> OnEditModeChanged;
 
         /// <summary>
+        /// Event fired when a mover is added or removed. Used by Edit Mode panel to refresh.
+        /// </summary>
+        public static event Action OnMoversChanged;
+
+        /// <summary>
         /// The element ID this mover is associated with.
         /// </summary>
         private string _elementId;
@@ -92,6 +97,14 @@ namespace Veneer.Grid
             {
                 _allMovers.Add(this);
                 _isRegistered = true;
+                OnMoversChanged?.Invoke();
+            }
+
+            // Also register with anchor system in Awake if ElementId is already set
+            // This ensures disabled frames are still registered for the edit mode panel
+            if (!string.IsNullOrEmpty(_elementId) && _targetRect != null)
+            {
+                VeneerAnchor.RegisterRectTransform(_elementId, _targetRect);
             }
 
             // Subscribe to edit mode changes immediately in Awake
@@ -163,6 +176,7 @@ namespace Veneer.Grid
             {
                 _allMovers.Remove(this);
                 _isRegistered = false;
+                OnMoversChanged?.Invoke();
             }
         }
 

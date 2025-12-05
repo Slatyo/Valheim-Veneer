@@ -13,7 +13,8 @@ namespace Veneer.Grid
 {
     /// <summary>
     /// Edit mode configuration panel with element visibility toggles.
-    /// Toggles only hide/show elements temporarily during edit mode.
+    /// Groups elements by prefix and allows hiding/showing groups and individual elements.
+    /// Visibility toggles only affect edit mode display - original window states are preserved.
     /// </summary>
     public class VeneerEditModePanel : VeneerElement
     {
@@ -24,9 +25,15 @@ namespace Veneer.Grid
         private RectTransform _contentTransform;
         private ScrollRect _scrollRect;
 
-        // Element visibility state (temporary during edit mode)
-        private Dictionary<string, bool> _elementVisibility = new Dictionary<string, bool>();
+        // Element visibility state during edit mode (does NOT affect actual window state)
+        private Dictionary<string, bool> _editModeVisibility = new Dictionary<string, bool>();
         private Dictionary<string, Toggle> _elementToggles = new Dictionary<string, Toggle>();
+
+        // Group visibility state
+        private Dictionary<string, bool> _groupVisibility = new Dictionary<string, bool>();
+        private Dictionary<string, Toggle> _groupToggles = new Dictionary<string, Toggle>();
+        private Dictionary<string, GameObject> _groupContents = new Dictionary<string, GameObject>();
+        private Dictionary<string, bool> _groupExpanded = new Dictionary<string, bool>();
 
         // Drag state
         private bool _isDragging;
@@ -81,8 +88,8 @@ namespace Veneer.Grid
 
         private void Initialize()
         {
-            float width = 240f;
-            float height = 380f;
+            float width = 260f;
+            float height = 420f;
             float padding = 6f;
             float headerHeight = 26f;
 
@@ -216,7 +223,7 @@ namespace Veneer.Grid
             contentLayout.childControlHeight = true;
             contentLayout.childForceExpandWidth = true;
             contentLayout.childForceExpandHeight = false;
-            contentLayout.spacing = 4f;
+            contentLayout.spacing = 2f;
             contentLayout.padding = new RectOffset(2, 2, 2, 2);
 
             var contentFitter = contentGo.AddComponent<ContentSizeFitter>();
@@ -236,10 +243,26 @@ namespace Veneer.Grid
 
             transform.SetAsLastSibling();
             gameObject.SetActive(false);
+
+            // Subscribe to movers changed event to auto-refresh when new elements are added
+            VeneerMover.OnMoversChanged += OnMoversListChanged;
+        }
+
+
+        /// <summary>
+        /// Called when movers are added or removed. Refreshes the list if visible.
+        /// </summary>
+        private void OnMoversListChanged()
+        {
+            // Only refresh if we're visible
+            if (gameObject.activeSelf)
+            {
+                RebuildElementList();
+            }
         }
 
         /// <summary>
-        /// Rebuilds the element list from all registered Veneer elements.
+        /// Rebuilds the element list from all VeneerMovers, grouped by prefix.
         /// </summary>
         private void RebuildElementList()
         {
@@ -249,6 +272,8 @@ namespace Veneer.Grid
                 Destroy(child.gameObject);
             }
             _elementToggles.Clear();
+            _groupToggles.Clear();
+            _groupContents.Clear();
 
             // Settings section
             CreateSettingsSection();
@@ -256,29 +281,32 @@ namespace Veneer.Grid
             // Separator
             CreateSeparator();
 
-            // Elements section header
-            CreateSectionHeader("UI Elements (Show/Hide)");
+            // Get all movers directly - this includes disabled frames
+            var movers = VeneerMover.AllMovers
+                .Where(m => m != null && !string.IsNullOrEmpty(m.ElementId))
+                .Where(m => m.ElementId != "VeneerEditModePanel")
+                .OrderBy(m => m.ElementId)
+                .ToList();
 
-            // Get all registered elements from VeneerAnchor
-            var elements = VeneerAnchor.GetRegisteredElements().ToList();
-            elements.Sort();
-
-            // Create toggle for each element
-            foreach (var elementId in elements)
+            // Group movers by prefix
+            var groups = new Dictionary<string, List<VeneerMover>>();
+            foreach (var mover in movers)
             {
-                // Skip the edit mode panel itself
-                if (elementId == "VeneerEditModePanel") continue;
-
-                // Get friendly name from element ID
-                string friendlyName = GetFriendlyName(elementId);
-
-                // Initialize visibility state if not set
-                if (!_elementVisibility.ContainsKey(elementId))
+                string prefix = GetGroupPrefix(mover.ElementId);
+                if (!groups.ContainsKey(prefix))
                 {
-                    _elementVisibility[elementId] = true;
+                    groups[prefix] = new List<VeneerMover>();
                 }
+                groups[prefix].Add(mover);
+            }
 
-                CreateElementToggle(elementId, friendlyName);
+            // Create UI Elements section header
+            CreateSectionHeader($"UI Elements ({movers.Count} total)");
+
+            // Create groups sorted alphabetically
+            foreach (var group in groups.OrderBy(g => g.Key))
+            {
+                CreateGroup(group.Key, group.Value);
             }
 
             // Separator
@@ -289,6 +317,193 @@ namespace Veneer.Grid
 
             // Force layout update
             LayoutRebuilder.ForceRebuildLayoutImmediate(_contentTransform);
+        }
+
+        /// <summary>
+        /// Gets the group prefix from an element ID.
+        /// e.g., "Veneer_PlayerFrame" -> "Veneer", "Nexus_NetworkStats" -> "Nexus"
+        /// </summary>
+        private string GetGroupPrefix(string elementId)
+        {
+            int underscoreIndex = elementId.IndexOf('_');
+            if (underscoreIndex > 0)
+            {
+                return elementId.Substring(0, underscoreIndex);
+            }
+            return "Other";
+        }
+
+        /// <summary>
+        /// Creates a collapsible group for elements with the same prefix.
+        /// </summary>
+        private void CreateGroup(string groupName, List<VeneerMover> movers)
+        {
+            // Initialize group visibility if not set
+            if (!_groupVisibility.ContainsKey(groupName))
+            {
+                _groupVisibility[groupName] = true;
+            }
+            if (!_groupExpanded.ContainsKey(groupName))
+            {
+                _groupExpanded[groupName] = true;
+            }
+
+            // Group header container
+            var groupHeaderGo = CreateUIObject($"GroupHeader_{groupName}", _contentTransform);
+            var groupHeaderLE = groupHeaderGo.AddComponent<LayoutElement>();
+            groupHeaderLE.minHeight = 22f;
+            groupHeaderLE.preferredHeight = 22f;
+
+            var groupHeaderLayout = groupHeaderGo.AddComponent<HorizontalLayoutGroup>();
+            groupHeaderLayout.childAlignment = TextAnchor.MiddleLeft;
+            groupHeaderLayout.childControlWidth = true;
+            groupHeaderLayout.childControlHeight = true;
+            groupHeaderLayout.childForceExpandWidth = false;
+            groupHeaderLayout.childForceExpandHeight = false;
+            groupHeaderLayout.spacing = 4f;
+            groupHeaderLayout.padding = new RectOffset(4, 4, 2, 2);
+
+            var groupHeaderBg = groupHeaderGo.AddComponent<Image>();
+            groupHeaderBg.color = new Color(0.18f, 0.18f, 0.2f, 1f);
+            groupHeaderBg.raycastTarget = true;
+
+            // Expand/collapse arrow button
+            var arrowGo = CreateUIObject("Arrow", groupHeaderGo.transform);
+            var arrowLE = arrowGo.AddComponent<LayoutElement>();
+            arrowLE.minWidth = 16f;
+            arrowLE.minHeight = 16f;
+            arrowLE.preferredWidth = 16f;
+            arrowLE.preferredHeight = 16f;
+            arrowLE.flexibleWidth = 0f;
+
+            var arrowText = arrowGo.AddComponent<Text>();
+            arrowText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+            arrowText.fontSize = 10;
+            arrowText.color = new Color(0.7f, 0.7f, 0.7f, 1f);
+            arrowText.alignment = TextAnchor.MiddleCenter;
+            arrowText.text = _groupExpanded[groupName] ? "▼" : "►";
+            arrowText.raycastTarget = true;
+
+            var arrowBtn = arrowGo.AddComponent<Button>();
+            arrowBtn.targetGraphic = arrowText;
+            arrowBtn.transition = Selectable.Transition.ColorTint;
+
+            // Group checkbox
+            var checkboxGo = CreateUIObject("Checkbox", groupHeaderGo.transform);
+            var checkboxLE = checkboxGo.AddComponent<LayoutElement>();
+            checkboxLE.minWidth = 14f;
+            checkboxLE.minHeight = 14f;
+            checkboxLE.preferredWidth = 14f;
+            checkboxLE.preferredHeight = 14f;
+            checkboxLE.flexibleWidth = 0f;
+
+            var checkboxBg = checkboxGo.AddComponent<Image>();
+            checkboxBg.color = new Color(0.25f, 0.25f, 0.28f, 1f);
+            checkboxBg.raycastTarget = true;
+
+            var checkmarkGo = CreateUIObject("Checkmark", checkboxGo.transform);
+            var checkmarkRect = checkmarkGo.GetComponent<RectTransform>();
+            checkmarkRect.anchorMin = new Vector2(0.15f, 0.15f);
+            checkmarkRect.anchorMax = new Vector2(0.85f, 0.85f);
+            checkmarkRect.offsetMin = Vector2.zero;
+            checkmarkRect.offsetMax = Vector2.zero;
+
+            var checkmarkImage = checkmarkGo.AddComponent<Image>();
+            checkmarkImage.color = VeneerColors.Accent;
+            checkmarkImage.raycastTarget = false;
+            checkmarkGo.SetActive(_groupVisibility[groupName]);
+
+            var groupToggle = checkboxGo.AddComponent<Toggle>();
+            groupToggle.isOn = _groupVisibility[groupName];
+            groupToggle.graphic = checkmarkImage;
+            groupToggle.targetGraphic = checkboxBg;
+
+            _groupToggles[groupName] = groupToggle;
+
+            // Group label
+            var labelGo = CreateUIObject("Label", groupHeaderGo.transform);
+            var labelLE = labelGo.AddComponent<LayoutElement>();
+            labelLE.flexibleWidth = 1f;
+            labelLE.minHeight = 16f;
+
+            var labelText = labelGo.AddComponent<Text>();
+            labelText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+            labelText.fontSize = 11;
+            labelText.fontStyle = FontStyle.Bold;
+            labelText.color = VeneerColors.TextGold;
+            labelText.alignment = TextAnchor.MiddleLeft;
+            labelText.text = $"{groupName} ({movers.Count})";
+            labelText.raycastTarget = false;
+
+            // Group content container
+            var groupContentGo = CreateUIObject($"GroupContent_{groupName}", _contentTransform);
+            var groupContentLE = groupContentGo.AddComponent<LayoutElement>();
+            groupContentLE.minHeight = 0f;
+
+            var groupContentLayout = groupContentGo.AddComponent<VerticalLayoutGroup>();
+            groupContentLayout.childAlignment = TextAnchor.UpperLeft;
+            groupContentLayout.childControlWidth = true;
+            groupContentLayout.childControlHeight = true;
+            groupContentLayout.childForceExpandWidth = true;
+            groupContentLayout.childForceExpandHeight = false;
+            groupContentLayout.spacing = 1f;
+            groupContentLayout.padding = new RectOffset(16, 2, 0, 2);
+
+            var groupContentFitter = groupContentGo.AddComponent<ContentSizeFitter>();
+            groupContentFitter.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
+            groupContentFitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            _groupContents[groupName] = groupContentGo;
+            groupContentGo.SetActive(_groupExpanded[groupName]);
+
+            // Create element toggles within the group
+            foreach (var mover in movers)
+            {
+                CreateElementToggle(mover.ElementId, GetFriendlyName(mover.ElementId), groupContentGo.transform);
+            }
+
+            // Wire up group toggle
+            groupToggle.onValueChanged.AddListener(value =>
+            {
+                _groupVisibility[groupName] = value;
+                checkmarkGo.SetActive(value);
+                SetGroupVisible(groupName, value);
+            });
+
+            // Wire up arrow button for expand/collapse
+            arrowBtn.onClick.AddListener(() =>
+            {
+                _groupExpanded[groupName] = !_groupExpanded[groupName];
+                arrowText.text = _groupExpanded[groupName] ? "▼" : "►";
+                groupContentGo.SetActive(_groupExpanded[groupName]);
+                LayoutRebuilder.ForceRebuildLayoutImmediate(_contentTransform);
+            });
+        }
+
+        /// <summary>
+        /// Sets all elements in a group visible or hidden (in edit mode only).
+        /// </summary>
+        private void SetGroupVisible(string groupName, bool visible)
+        {
+            foreach (var mover in VeneerMover.AllMovers)
+            {
+                if (mover != null && !string.IsNullOrEmpty(mover.ElementId))
+                {
+                    if (GetGroupPrefix(mover.ElementId) == groupName)
+                    {
+                        SetElementVisibleInEditMode(mover.ElementId, visible);
+
+                        // Update individual toggle if exists
+                        if (_elementToggles.TryGetValue(mover.ElementId, out var toggle))
+                        {
+                            toggle.SetIsOnWithoutNotify(visible);
+                            // Update checkmark
+                            var checkmark = toggle.graphic?.gameObject;
+                            if (checkmark != null) checkmark.SetActive(visible);
+                        }
+                    }
+                }
+            }
         }
 
         private void CreateSettingsSection()
@@ -309,7 +524,7 @@ namespace Veneer.Grid
             // Show All button
             CreateActionButton("Show All", () =>
             {
-                foreach (var kvp in _elementToggles)
+                foreach (var kvp in _groupToggles)
                 {
                     kvp.Value.isOn = true;
                 }
@@ -318,10 +533,38 @@ namespace Veneer.Grid
             // Hide All button
             CreateActionButton("Hide All", () =>
             {
-                foreach (var kvp in _elementToggles)
+                foreach (var kvp in _groupToggles)
                 {
                     kvp.Value.isOn = false;
                 }
+            });
+
+            // Expand All button
+            CreateActionButton("Expand All Groups", () =>
+            {
+                foreach (var groupName in _groupContents.Keys.ToList())
+                {
+                    _groupExpanded[groupName] = true;
+                    if (_groupContents.TryGetValue(groupName, out var content))
+                    {
+                        content.SetActive(true);
+                    }
+                }
+                LayoutRebuilder.ForceRebuildLayoutImmediate(_contentTransform);
+            });
+
+            // Collapse All button
+            CreateActionButton("Collapse All Groups", () =>
+            {
+                foreach (var groupName in _groupContents.Keys.ToList())
+                {
+                    _groupExpanded[groupName] = false;
+                    if (_groupContents.TryGetValue(groupName, out var content))
+                    {
+                        content.SetActive(false);
+                    }
+                }
+                LayoutRebuilder.ForceRebuildLayoutImmediate(_contentTransform);
             });
 
             // Reset Positions button
@@ -460,13 +703,13 @@ namespace Veneer.Grid
             labelText.raycastTarget = false;
         }
 
-        private void CreateElementToggle(string elementId, string label)
+        private void CreateElementToggle(string elementId, string label, Transform parent)
         {
-            var itemGo = CreateUIObject($"Element_{elementId}", _contentTransform);
+            var itemGo = CreateUIObject($"Element_{elementId}", parent);
 
             var itemLE = itemGo.AddComponent<LayoutElement>();
-            itemLE.minHeight = 18f;
-            itemLE.preferredHeight = 18f;
+            itemLE.minHeight = 16f;
+            itemLE.preferredHeight = 16f;
 
             var itemLayout = itemGo.AddComponent<HorizontalLayoutGroup>();
             itemLayout.childAlignment = TextAnchor.MiddleLeft;
@@ -475,16 +718,16 @@ namespace Veneer.Grid
             itemLayout.childForceExpandWidth = false;
             itemLayout.childForceExpandHeight = false;
             itemLayout.spacing = 6f;
-            itemLayout.padding = new RectOffset(6, 4, 0, 0);
+            itemLayout.padding = new RectOffset(4, 4, 0, 0);
 
             // Checkbox
             var checkboxGo = CreateUIObject("Checkbox", itemGo.transform);
 
             var checkboxLE = checkboxGo.AddComponent<LayoutElement>();
-            checkboxLE.minWidth = 14f;
-            checkboxLE.minHeight = 14f;
-            checkboxLE.preferredWidth = 14f;
-            checkboxLE.preferredHeight = 14f;
+            checkboxLE.minWidth = 12f;
+            checkboxLE.minHeight = 12f;
+            checkboxLE.preferredWidth = 12f;
+            checkboxLE.preferredHeight = 12f;
             checkboxLE.flexibleWidth = 0f;
 
             var checkboxBg = checkboxGo.AddComponent<Image>();
@@ -502,7 +745,12 @@ namespace Veneer.Grid
             checkmarkImage.color = new Color(0.4f, 0.7f, 0.4f, 1f); // Green for visibility
             checkmarkImage.raycastTarget = false;
 
-            bool isVisible = _elementVisibility.ContainsKey(elementId) ? _elementVisibility[elementId] : true;
+            // Initialize visibility state
+            if (!_editModeVisibility.ContainsKey(elementId))
+            {
+                _editModeVisibility[elementId] = true;
+            }
+            bool isVisible = _editModeVisibility[elementId];
             checkmarkGo.SetActive(isVisible);
 
             var toggle = checkboxGo.AddComponent<Toggle>();
@@ -519,9 +767,12 @@ namespace Veneer.Grid
 
             toggle.onValueChanged.AddListener(value =>
             {
-                _elementVisibility[elementId] = value;
+                _editModeVisibility[elementId] = value;
                 checkmarkGo.SetActive(value);
-                SetElementVisible(elementId, value);
+                SetElementVisibleInEditMode(elementId, value);
+
+                // Update group toggle state
+                UpdateGroupToggleState(GetGroupPrefix(elementId));
             });
 
             _elementToggles[elementId] = toggle;
@@ -531,7 +782,7 @@ namespace Veneer.Grid
 
             var labelLE = labelGo.AddComponent<LayoutElement>();
             labelLE.flexibleWidth = 1f;
-            labelLE.minHeight = 16f;
+            labelLE.minHeight = 14f;
 
             var labelText = labelGo.AddComponent<Text>();
             labelText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
@@ -540,6 +791,40 @@ namespace Veneer.Grid
             labelText.alignment = TextAnchor.MiddleLeft;
             labelText.text = label;
             labelText.raycastTarget = false;
+        }
+
+        /// <summary>
+        /// Updates the group toggle state based on child element states.
+        /// </summary>
+        private void UpdateGroupToggleState(string groupName)
+        {
+            if (!_groupToggles.TryGetValue(groupName, out var groupToggle))
+                return;
+
+            // Check if all elements in this group are visible
+            bool allVisible = true;
+            bool anyVisible = false;
+
+            foreach (var mover in VeneerMover.AllMovers)
+            {
+                if (mover != null && !string.IsNullOrEmpty(mover.ElementId))
+                {
+                    if (GetGroupPrefix(mover.ElementId) == groupName)
+                    {
+                        bool isVisible = _editModeVisibility.TryGetValue(mover.ElementId, out var v) ? v : true;
+                        if (isVisible) anyVisible = true;
+                        else allVisible = false;
+                    }
+                }
+            }
+
+            // Update group toggle without triggering callback
+            groupToggle.SetIsOnWithoutNotify(allVisible);
+            _groupVisibility[groupName] = allVisible;
+
+            // Update checkmark
+            var checkmark = groupToggle.graphic?.gameObject;
+            if (checkmark != null) checkmark.SetActive(anyVisible);
         }
 
         private void CreateActionButton(string label, Action onClick)
@@ -592,11 +877,12 @@ namespace Veneer.Grid
 
         private string GetFriendlyName(string elementId)
         {
-            // Remove "Veneer_" prefix and add spaces before capitals
+            // Remove prefix (e.g., "Veneer_PlayerFrame" -> "PlayerFrame")
             string name = elementId;
-            if (name.StartsWith("Veneer_"))
+            int underscoreIndex = name.IndexOf('_');
+            if (underscoreIndex > 0 && underscoreIndex < name.Length - 1)
             {
-                name = name.Substring(7);
+                name = name.Substring(underscoreIndex + 1);
             }
 
             // Add spaces before capitals (e.g., "PlayerFrame" -> "Player Frame")
@@ -613,16 +899,21 @@ namespace Veneer.Grid
             return result.ToString();
         }
 
-        private void SetElementVisible(string elementId, bool visible)
+        /// <summary>
+        /// Sets an element's visibility during edit mode.
+        /// This only controls the edit mode overlay visibility - it doesn't change
+        /// the actual window's open/closed state outside of edit mode.
+        /// </summary>
+        private void SetElementVisibleInEditMode(string elementId, bool visible)
         {
-            // Find the mover with this element ID and show/hide it
             foreach (var mover in VeneerMover.AllMovers)
             {
                 if (mover != null && mover.ElementId == elementId)
                 {
-                    // Just show/hide the game object - don't change any config
+                    // Only control visibility during edit mode
+                    // The mover handles restoring original state when edit mode ends
                     mover.gameObject.SetActive(visible);
-                    Plugin.Log.LogDebug($"VeneerEditModePanel: Set {elementId} visible={visible}");
+                    Plugin.Log.LogDebug($"VeneerEditModePanel: Set {elementId} edit-mode visible={visible}");
                     return;
                 }
             }
@@ -638,21 +929,14 @@ namespace Veneer.Grid
         }
 
         /// <summary>
-        /// Restores all element visibility when exiting edit mode.
+        /// Called when exiting edit mode - resets visibility tracking.
+        /// The VeneerMover handles restoring actual window states.
         /// </summary>
-        public void RestoreAllVisibility()
+        public void ResetEditModeState()
         {
-            foreach (var kvp in _elementVisibility)
-            {
-                // All elements should be restored to visible
-                if (!kvp.Value)
-                {
-                    SetElementVisible(kvp.Key, true);
-                }
-            }
-
-            // Reset visibility state
-            _elementVisibility.Clear();
+            // Clear our tracking - VeneerMover.RestoreAfterEditMode handles actual state restoration
+            _editModeVisibility.Clear();
+            _groupVisibility.Clear();
         }
 
         public override void Show()
@@ -674,13 +958,12 @@ namespace Veneer.Grid
 
         public override void Hide()
         {
-            // Restore all visibility before hiding
-            RestoreAllVisibility();
             gameObject.SetActive(false);
         }
 
         protected override void OnDestroy()
         {
+            VeneerMover.OnMoversChanged -= OnMoversListChanged;
             base.OnDestroy();
             if (_instance == this)
                 _instance = null;
