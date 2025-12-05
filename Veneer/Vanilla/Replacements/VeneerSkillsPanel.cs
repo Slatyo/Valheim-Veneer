@@ -68,6 +68,7 @@ namespace Veneer.Vanilla.Replacements
             });
 
             // Add VeneerMover to THIS wrapper panel (not the child frame)
+            // VeneerMover automatically registers with VeneerAnchor for position persistence
             var mover = gameObject.AddComponent<VeneerMover>();
             mover.ElementId = ElementId;
 

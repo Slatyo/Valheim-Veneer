@@ -364,6 +364,76 @@ if (VeneerAPI.IsReady) { }
 | `VeneerItemGrid` | Grid of inventory slots |
 | `VeneerTooltip` | Mouse-following tooltip |
 
+## Extension System
+
+Veneer provides a powerful extension system that allows mods to hook into and extend Veneer's UI components.
+
+### QuickBar Extensions
+
+Add buttons to the QuickBar:
+
+```csharp
+public class MyQuickBarExtension : IQuickBarExtension
+{
+    public int Priority => 0;
+    public string ExtensionId => "mymod.quickbar.teleport";
+
+    public void OnQuickBarCreated(QuickBarContext context)
+    {
+        // Add a button to the QuickBar
+        var button = VeneerQuickBar.CreateQuickBarButton(
+            context.ButtonContainer,
+            "Teleport",
+            70f,
+            () => Debug.Log("Teleport clicked!")
+        );
+    }
+
+    public void OnQuickBarDestroyed()
+    {
+        // Clean up references
+    }
+}
+
+// Register in your plugin's Awake
+VeneerAPI.RegisterQuickBarExtension(new MyQuickBarExtension());
+```
+
+### Window Extensions
+
+Hook into any Veneer window's lifecycle:
+
+```csharp
+public class MyWindowExtension : IWindowExtension
+{
+    public int Priority => 0;
+    public string ExtensionId => "mymod.window.stats";
+
+    public bool AppliesTo(string windowId) => windowId == "Veneer_Skills";
+
+    public void OnWindowCreated(WindowContext context)
+    {
+        // Add UI to the Skills window
+    }
+
+    public void OnWindowDestroyed(string windowId) { }
+    public void OnWindowShown(WindowContext context) { }
+    public void OnWindowHidden(string windowId) { }
+}
+
+VeneerAPI.RegisterWindowExtension(new MyWindowExtension());
+```
+
+### Available Extension Points
+
+| Extension | Description |
+|-----------|-------------|
+| `IQuickBarExtension` | Add buttons to the QuickBar |
+| `IInventoryExtension` | Extend the Inventory panel |
+| `IWindowExtension` | Hook into any window's lifecycle |
+| `IHotbarExtension` | Add elements next to the hotbar |
+| `IHudExtension` | Add custom HUD elements |
+
 ## Rarity Colors
 
 | Tier | Name | Color |

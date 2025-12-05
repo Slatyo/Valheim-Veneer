@@ -6,6 +6,7 @@ using Veneer.Components.Base;
 using Veneer.Components.Composite;
 using Veneer.Components.Primitives;
 using Veneer.Components.Specialized;
+using Veneer.Extensions;
 using Veneer.Grid;
 using Veneer.Theme;
 using Veneer.Vanilla.Patches;
@@ -874,6 +875,95 @@ namespace Veneer.Core
         public static int GetScaledFontSize(int baseSize)
         {
             return VeneerConfig.GetScaledFontSize(baseSize);
+        }
+
+        #endregion
+
+        #region Extensions
+
+        /// <summary>
+        /// Registers a QuickBar extension.
+        /// Extensions can add buttons to the QuickBar.
+        /// </summary>
+        public static void RegisterQuickBarExtension(IQuickBarExtension extension)
+        {
+            VeneerExtensionRegistry.RegisterQuickBarExtension(extension);
+        }
+
+        /// <summary>
+        /// Unregisters a QuickBar extension.
+        /// </summary>
+        public static void UnregisterQuickBarExtension(IQuickBarExtension extension)
+        {
+            VeneerExtensionRegistry.UnregisterQuickBarExtension(extension);
+        }
+
+        /// <summary>
+        /// Registers an Inventory extension.
+        /// Extensions can add UI elements to the inventory panel.
+        /// </summary>
+        public static void RegisterInventoryExtension(IInventoryExtension extension)
+        {
+            VeneerExtensionRegistry.RegisterInventoryExtension(extension);
+        }
+
+        /// <summary>
+        /// Unregisters an Inventory extension.
+        /// </summary>
+        public static void UnregisterInventoryExtension(IInventoryExtension extension)
+        {
+            VeneerExtensionRegistry.UnregisterInventoryExtension(extension);
+        }
+
+        /// <summary>
+        /// Registers a Window extension.
+        /// Extensions can hook into window lifecycle events.
+        /// </summary>
+        public static void RegisterWindowExtension(IWindowExtension extension)
+        {
+            VeneerExtensionRegistry.RegisterWindowExtension(extension);
+        }
+
+        /// <summary>
+        /// Unregisters a Window extension.
+        /// </summary>
+        public static void UnregisterWindowExtension(IWindowExtension extension)
+        {
+            VeneerExtensionRegistry.UnregisterWindowExtension(extension);
+        }
+
+        /// <summary>
+        /// Registers a Hotbar extension.
+        /// Extensions can add elements next to the hotbar.
+        /// </summary>
+        public static void RegisterHotbarExtension(IHotbarExtension extension)
+        {
+            VeneerExtensionRegistry.RegisterHotbarExtension(extension);
+        }
+
+        /// <summary>
+        /// Unregisters a Hotbar extension.
+        /// </summary>
+        public static void UnregisterHotbarExtension(IHotbarExtension extension)
+        {
+            VeneerExtensionRegistry.UnregisterHotbarExtension(extension);
+        }
+
+        /// <summary>
+        /// Registers a HUD extension.
+        /// Extensions can add custom HUD elements.
+        /// </summary>
+        public static void RegisterHudExtension(IHudExtension extension)
+        {
+            VeneerExtensionRegistry.RegisterHudExtension(extension);
+        }
+
+        /// <summary>
+        /// Unregisters a HUD extension.
+        /// </summary>
+        public static void UnregisterHudExtension(IHudExtension extension)
+        {
+            VeneerExtensionRegistry.UnregisterHudExtension(extension);
         }
 
         #endregion

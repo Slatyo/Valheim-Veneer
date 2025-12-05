@@ -40,10 +40,18 @@ namespace Veneer.Grid
             set
             {
                 _elementId = value;
-                // Register RectTransform when ElementId is set
                 if (!string.IsNullOrEmpty(_elementId) && _targetRect != null)
                 {
-                    VeneerAnchor.RegisterRectTransform(_elementId, _targetRect);
+                    // Ensure element is registered with anchor system (required for position saving)
+                    // If already registered, this just updates the RectTransform reference
+                    if (VeneerAnchor.GetAnchorData(_elementId) == null)
+                    {
+                        // Not yet registered - register with current position as default
+                        VeneerAnchor.Register(_elementId, ScreenAnchor.Center, _targetRect.anchoredPosition, _targetRect.sizeDelta);
+                    }
+
+                    // Apply saved position to RectTransform
+                    VeneerAnchor.ApplySavedLayout(_targetRect, _elementId);
                 }
             }
         }
@@ -100,11 +108,16 @@ namespace Veneer.Grid
                 OnMoversChanged?.Invoke();
             }
 
-            // Also register with anchor system in Awake if ElementId is already set
-            // This ensures disabled frames are still registered for the edit mode panel
+            // Ensure element is registered with anchor system if ElementId is already set
+            // This handles cases where ElementId was set before Awake ran
             if (!string.IsNullOrEmpty(_elementId) && _targetRect != null)
             {
-                VeneerAnchor.RegisterRectTransform(_elementId, _targetRect);
+                if (VeneerAnchor.GetAnchorData(_elementId) == null)
+                {
+                    VeneerAnchor.Register(_elementId, ScreenAnchor.Center, _targetRect.anchoredPosition, _targetRect.sizeDelta);
+                }
+                // Apply saved position to RectTransform
+                VeneerAnchor.ApplySavedLayout(_targetRect, _elementId);
             }
 
             // Subscribe to edit mode changes immediately in Awake

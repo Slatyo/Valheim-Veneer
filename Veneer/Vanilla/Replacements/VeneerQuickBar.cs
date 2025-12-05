@@ -5,6 +5,7 @@ using UnityEngine.UI;
 using Veneer.Components.Base;
 using Veneer.Components.Primitives;
 using Veneer.Core;
+using Veneer.Extensions;
 using Veneer.Grid;
 using Veneer.Theme;
 
@@ -29,6 +30,7 @@ namespace Veneer.Vanilla.Replacements
 
         private Image _backgroundImage;
         private Image _borderImage;
+        private Transform _buttonContainer;
 
         // Quick access buttons
         private VeneerButton _inventoryTab;
@@ -72,6 +74,10 @@ namespace Veneer.Vanilla.Replacements
             base.OnDestroy();
             VeneerWindowManager.OnWindowOpened -= OnWindowStateChanged;
             VeneerWindowManager.OnWindowClosed -= OnWindowStateChanged;
+
+            // Notify extensions
+            VeneerExtensionRegistry.NotifyQuickBarDestroyed();
+
             if (_instance == this)
                 _instance = null;
         }
@@ -129,6 +135,7 @@ namespace Veneer.Vanilla.Replacements
 
             // Content with horizontal layout
             var content = CreateUIObject("Content", transform);
+            _buttonContainer = content.transform;
             var contentRect = content.GetComponent<RectTransform>();
             contentRect.anchorMin = Vector2.zero;
             contentRect.anchorMax = Vector2.one;
@@ -198,6 +205,13 @@ namespace Veneer.Vanilla.Replacements
             // Check EventSystem
             var eventSystem = UnityEngine.EventSystems.EventSystem.current;
             Plugin.Log.LogInfo($"  - EventSystem: {eventSystem?.name ?? "null"}");
+
+            // Notify extensions that QuickBar is ready
+            VeneerExtensionRegistry.NotifyQuickBarCreated(new QuickBarContext
+            {
+                ButtonContainer = _buttonContainer,
+                QuickBar = this
+            });
         }
 
         private void OnWindowStateChanged(VeneerElement window)
@@ -206,6 +220,20 @@ namespace Veneer.Vanilla.Replacements
         }
 
         private VeneerButton CreateButton(Transform parent, string label, float width, Action onClick)
+        {
+            return CreateQuickBarButton(parent, label, width, onClick);
+        }
+
+        /// <summary>
+        /// Creates a button styled for the QuickBar.
+        /// Extensions can use this to add buttons that match the QuickBar's style.
+        /// </summary>
+        /// <param name="parent">Parent transform (use QuickBarContext.ButtonContainer)</param>
+        /// <param name="label">Button label text</param>
+        /// <param name="width">Button width in pixels</param>
+        /// <param name="onClick">Click callback</param>
+        /// <returns>The created button</returns>
+        public static VeneerButton CreateQuickBarButton(Transform parent, string label, float width, Action onClick)
         {
             var button = VeneerButton.CreateTab(parent, label, () =>
             {

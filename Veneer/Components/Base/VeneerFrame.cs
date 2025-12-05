@@ -181,13 +181,15 @@ namespace Veneer.Components.Base
             if (config.Anchor.HasValue)
                 AnchorTo(config.Anchor.Value, config.Offset);
 
-            // Register with anchor system if saveable
-            if (!string.IsNullOrEmpty(config.Id) && config.SavePosition)
+            // Register with anchor system if we have an Id
+            // This is needed for Edit Mode positioning to work (VeneerMover uses VeneerAnchor)
+            // SavePosition controls whether the position persists to disk
+            if (!string.IsNullOrEmpty(config.Id))
             {
                 var anchor = config.Anchor.HasValue
                     ? ConvertToScreenAnchor(config.Anchor.Value)
                     : ScreenAnchor.Center;
-                VeneerAnchor.Register(config.Id, anchor, config.Offset);
+                VeneerAnchor.Register(config.Id, anchor, config.Offset, RectTransform.sizeDelta);
 
                 // Apply saved position if exists
                 var savedData = VeneerAnchor.GetAnchorData(config.Id);
