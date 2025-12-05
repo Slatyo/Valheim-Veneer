@@ -108,9 +108,7 @@ var config = new FrameConfig
     Width = 400,
     Height = 300,
     Anchor = AnchorPreset.Center,
-    Moveable = true,
-    SavePosition = true,
-    ShowInEditMode = true
+    SavePosition = true
 };
 var configuredFrame = VeneerAPI.CreateFrame(config);
 ```

@@ -675,13 +675,6 @@ namespace Veneer.Components.Base
         public Vector2 Offset { get; set; }
 
         /// <summary>
-        /// [DEPRECATED] VeneerMover is now always added when Id is set.
-        /// This property is kept for backward compatibility but has no effect.
-        /// </summary>
-        [System.Obsolete("VeneerMover is now always added when Id is set. This property has no effect.")]
-        public bool Moveable { get; set; } = false;
-
-        /// <summary>
         /// Whether to save the position.
         /// </summary>
         public bool SavePosition { get; set; } = false;
