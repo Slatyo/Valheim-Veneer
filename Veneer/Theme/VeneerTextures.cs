@@ -242,6 +242,125 @@ namespace Veneer.Theme
         }
 
         /// <summary>
+        /// Creates a circular texture with anti-aliased edges.
+        /// </summary>
+        /// <param name="size">Texture dimensions (square)</param>
+        /// <param name="fillColor">Interior color</param>
+        /// <param name="borderColor">Border ring color</param>
+        /// <param name="borderWidth">Width of the border ring in pixels</param>
+        public static Texture2D CreateCircleTexture(int size, Color fillColor, Color borderColor, int borderWidth = 3)
+        {
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            float center = size / 2f;
+            float outerRadius = size / 2f - 1f; // Leave 1px margin for AA
+            float innerRadius = outerRadius - borderWidth;
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dx = x - center + 0.5f;
+                    float dy = y - center + 0.5f;
+                    float dist = Mathf.Sqrt(dx * dx + dy * dy);
+
+                    if (dist > outerRadius + 1f)
+                    {
+                        // Outside circle - transparent
+                        texture.SetPixel(x, y, Color.clear);
+                    }
+                    else if (dist > outerRadius)
+                    {
+                        // Outer edge AA
+                        float alpha = 1f - (dist - outerRadius);
+                        texture.SetPixel(x, y, new Color(borderColor.r, borderColor.g, borderColor.b, borderColor.a * alpha));
+                    }
+                    else if (dist > innerRadius)
+                    {
+                        // Border ring
+                        texture.SetPixel(x, y, borderColor);
+                    }
+                    else if (dist > innerRadius - 1f)
+                    {
+                        // Inner edge AA (blend border to fill)
+                        float t = 1f - (innerRadius - dist);
+                        texture.SetPixel(x, y, Color.Lerp(fillColor, borderColor, t));
+                    }
+                    else
+                    {
+                        // Fill
+                        texture.SetPixel(x, y, fillColor);
+                    }
+                }
+            }
+
+            texture.Apply();
+            texture.filterMode = FilterMode.Bilinear;
+            return texture;
+        }
+
+        /// <summary>
+        /// Creates a circular sprite.
+        /// </summary>
+        public static Sprite CreateCircleSprite(int size, Color fillColor, Color borderColor, int borderWidth = 3)
+        {
+            var texture = CreateCircleTexture(size, fillColor, borderColor, borderWidth);
+            return CreateSprite(texture);
+        }
+
+        /// <summary>
+        /// Creates a circular ring texture (border only, transparent center).
+        /// </summary>
+        public static Texture2D CreateCircleRingTexture(int size, Color ringColor, int ringWidth = 3)
+        {
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            float center = size / 2f;
+            float outerRadius = size / 2f - 1f;
+            float innerRadius = outerRadius - ringWidth;
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dx = x - center + 0.5f;
+                    float dy = y - center + 0.5f;
+                    float dist = Mathf.Sqrt(dx * dx + dy * dy);
+
+                    if (dist > outerRadius + 1f || dist < innerRadius - 1f)
+                    {
+                        texture.SetPixel(x, y, Color.clear);
+                    }
+                    else if (dist > outerRadius)
+                    {
+                        float alpha = 1f - (dist - outerRadius);
+                        texture.SetPixel(x, y, new Color(ringColor.r, ringColor.g, ringColor.b, ringColor.a * alpha));
+                    }
+                    else if (dist < innerRadius)
+                    {
+                        float alpha = dist - (innerRadius - 1f);
+                        texture.SetPixel(x, y, new Color(ringColor.r, ringColor.g, ringColor.b, ringColor.a * alpha));
+                    }
+                    else
+                    {
+                        texture.SetPixel(x, y, ringColor);
+                    }
+                }
+            }
+
+            texture.Apply();
+            texture.filterMode = FilterMode.Bilinear;
+            return texture;
+        }
+
+        /// <summary>
+        /// Creates a circular ring sprite.
+        /// </summary>
+        public static Sprite CreateCircleRingSprite(int size, Color ringColor, int ringWidth = 3)
+        {
+            var texture = CreateCircleRingTexture(size, ringColor, ringWidth);
+            return CreateSprite(texture);
+        }
+
+        /// <summary>
         /// Cleanup cached textures.
         /// </summary>
         public static void Cleanup()
