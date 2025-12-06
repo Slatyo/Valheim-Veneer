@@ -24,7 +24,6 @@ namespace Veneer.Vanilla.Replacements
 
         // UI References
         private VeneerText _weightText;
-        private Dictionary<string, VeneerItemSlot> _equipmentSlots = new Dictionary<string, VeneerItemSlot>();
         private VeneerItemGrid _inventoryGrid;
         private VeneerItemGrid _quickSlotGrid;
 
@@ -40,8 +39,6 @@ namespace Veneer.Vanilla.Replacements
         // Layout constants
         private const int INV_COLS = 8;
         private const int INV_ROWS = 4;
-        private const int EQUIP_COLS = 2;
-        private const int EQUIP_ROWS = 4;
         private const int QUICKSLOT_COLS = 8;
         private const float LABEL_HEIGHT = 18f;
         private const float WEIGHT_HEIGHT = 20f;
@@ -86,21 +83,17 @@ namespace Veneer.Vanilla.Replacements
             float spacing = 8f;
             float innerSpacing = 4f;
 
-            // Calculate section dimensions
-            float equipWidth = _slotSize * EQUIP_COLS + innerSpacing * (EQUIP_COLS - 1);
-            float equipHeight = _slotSize * EQUIP_ROWS + innerSpacing * (EQUIP_ROWS - 1);
-
+            // Calculate section dimensions (bags only - equipment moved to Viking Character Window)
             float bagWidth = _slotSize * INV_COLS + innerSpacing * (INV_COLS - 1);
             float bagHeight = _slotSize * INV_ROWS + innerSpacing * (INV_ROWS - 1);
 
             float quickWidth = _slotSize * QUICKSLOT_COLS + innerSpacing * (QUICKSLOT_COLS - 1);
             float quickHeight = _slotSize;
 
-            // Calculate total panel size
-            float contentWidth = equipWidth + spacing + bagWidth;
-            float mainHeight = Mathf.Max(equipHeight + LABEL_HEIGHT + innerSpacing, bagHeight + LABEL_HEIGHT + innerSpacing);
+            // Calculate total panel size (bags + hotbar + weight)
+            float contentWidth = bagWidth;
             float totalWidth = contentWidth + padding * 2;
-            float totalHeight = VeneerDimensions.WindowTitleHeight + mainHeight + spacing + LABEL_HEIGHT + innerSpacing + quickHeight + spacing + WEIGHT_HEIGHT + padding * 2;
+            float totalHeight = VeneerDimensions.WindowTitleHeight + LABEL_HEIGHT + innerSpacing + bagHeight + spacing + LABEL_HEIGHT + innerSpacing + quickHeight + spacing + WEIGHT_HEIGHT + padding * 2;
 
             // Create main inventory frame using VeneerFrame
             _inventoryFrame = VeneerFrame.Create(parent, new FrameConfig
@@ -121,7 +114,7 @@ namespace Veneer.Vanilla.Replacements
             _inventoryFrame.OnCloseClicked += OnInventoryWindowClosed;
 
             // Build content inside the frame's content area
-            BuildInventoryContent(_inventoryFrame.Content, contentWidth, equipWidth, equipHeight, bagWidth, bagHeight, quickWidth, quickHeight, spacing, innerSpacing);
+            BuildInventoryContent(_inventoryFrame.Content, contentWidth, bagWidth, bagHeight, quickWidth, quickHeight, spacing, innerSpacing);
 
             // Create container frame (hidden by default)
             CreateContainerFrame(parent);
@@ -134,31 +127,21 @@ namespace Veneer.Vanilla.Replacements
             _inventoryFrame.Hide();
         }
 
-        private void BuildInventoryContent(RectTransform content, float contentWidth, float equipWidth, float equipHeight, float bagWidth, float bagHeight, float quickWidth, float quickHeight, float spacing, float innerSpacing)
+        private void BuildInventoryContent(RectTransform content, float contentWidth, float bagWidth, float bagHeight, float quickWidth, float quickHeight, float spacing, float innerSpacing)
         {
             float yPos = 0;
-            float xPos = 0;
 
-            // Main section (Equipment + Bag side by side)
-            // Equipment section
-            CreateSectionLabel(content, "GEAR", xPos, yPos, equipWidth);
+            // Bag section (equipment moved to Viking Character Window)
+            CreateSectionLabel(content, "BAG", 0, yPos, bagWidth);
             yPos -= LABEL_HEIGHT + innerSpacing;
-            CreateEquipmentGrid(content, xPos, yPos, equipWidth, equipHeight, innerSpacing);
-
-            float equipSectionX = equipWidth + spacing;
-
-            // Bag section
-            CreateSectionLabel(content, "BAG", equipSectionX, 0, bagWidth);
-            _inventoryGrid = CreateItemGrid(content, "InventoryGrid", equipSectionX, -LABEL_HEIGHT - innerSpacing, INV_COLS, INV_ROWS, innerSpacing);
-
-            float sectionHeight = Mathf.Max(LABEL_HEIGHT + innerSpacing + equipHeight, LABEL_HEIGHT + innerSpacing + bagHeight);
-            yPos = -sectionHeight - spacing;
+            _inventoryGrid = CreateItemGrid(content, "InventoryGrid", 0, yPos, INV_COLS, INV_ROWS, innerSpacing);
+            _inventoryGrid.HideEquippedItems = true; // Equipment shown in Character Window
+            yPos -= bagHeight + spacing;
 
             // Quickslots section
             CreateSectionLabel(content, "HOTBAR", 0, yPos, quickWidth);
             yPos -= LABEL_HEIGHT + innerSpacing;
             _quickSlotGrid = CreateItemGrid(content, "QuickSlots", 0, yPos, QUICKSLOT_COLS, 1, innerSpacing);
-
             yPos -= quickHeight + spacing;
 
             // Weight display
@@ -183,35 +166,6 @@ namespace Veneer.Vanilla.Replacements
             labelText.Alignment = TextAnchor.MiddleCenter;
             labelText.Style = FontStyle.Bold;
             labelText.StretchToFill();
-        }
-
-        private void CreateEquipmentGrid(RectTransform parent, float x, float y, float width, float height, float spacing)
-        {
-            var panel = VeneerPanel.Create(parent, "Equipment", width, height);
-            panel.BackgroundColor = VeneerColors.BackgroundLight;
-            panel.ShowBorder = false;
-
-            var panelRect = panel.RectTransform;
-            panelRect.anchorMin = new Vector2(0, 1);
-            panelRect.anchorMax = new Vector2(0, 1);
-            panelRect.pivot = new Vector2(0, 1);
-            panelRect.anchoredPosition = new Vector2(x, y);
-
-            var gridLayout = panel.gameObject.AddComponent<GridLayoutGroup>();
-            gridLayout.cellSize = new Vector2(_slotSize, _slotSize);
-            gridLayout.spacing = new Vector2(spacing, spacing);
-            gridLayout.startCorner = GridLayoutGroup.Corner.UpperLeft;
-            gridLayout.startAxis = GridLayoutGroup.Axis.Horizontal;
-            gridLayout.childAlignment = TextAnchor.UpperLeft;
-            gridLayout.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
-            gridLayout.constraintCount = EQUIP_COLS;
-
-            string[] slotNames = { "Head", "Chest", "Legs", "Shoulder", "Utility", "Weapon", "Shield", "Ammo" };
-            foreach (var name in slotNames)
-            {
-                var slot = VeneerItemSlot.Create(panel.transform, _slotSize);
-                _equipmentSlots[name] = slot;
-            }
         }
 
         private VeneerItemGrid CreateItemGrid(RectTransform parent, string name, float x, float y, int cols, int rows, float spacing)
@@ -321,7 +275,6 @@ namespace Veneer.Vanilla.Replacements
             if (_player == null) return;
 
             _inventoryGrid.SetInventory(_player.GetInventory());
-            UpdateEquipmentSlots();
             UpdateWeight();
 
             _inventoryFrame.Show();
@@ -400,46 +353,11 @@ namespace Veneer.Vanilla.Replacements
             if (!IsVisible || _player == null) return;
 
             _inventoryGrid?.UpdateAllSlots();
-            UpdateEquipmentSlots();
             UpdateWeight();
 
             if (_openContainer != null && _containerGrid != null && _containerFrame.IsVisible)
             {
                 _containerGrid.UpdateAllSlots();
-            }
-        }
-
-        private void UpdateEquipmentSlots()
-        {
-            if (_player == null) return;
-
-            var inventory = _player.GetInventory();
-            var equipped = inventory.GetEquippedItems();
-
-            UpdateEquipSlot("Head", equipped.Find(i => i.m_shared.m_itemType == ItemDrop.ItemData.ItemType.Helmet));
-            UpdateEquipSlot("Chest", equipped.Find(i => i.m_shared.m_itemType == ItemDrop.ItemData.ItemType.Chest));
-            UpdateEquipSlot("Legs", equipped.Find(i => i.m_shared.m_itemType == ItemDrop.ItemData.ItemType.Legs));
-            UpdateEquipSlot("Shoulder", equipped.Find(i => i.m_shared.m_itemType == ItemDrop.ItemData.ItemType.Shoulder));
-            UpdateEquipSlot("Utility", equipped.Find(i => i.m_shared.m_itemType == ItemDrop.ItemData.ItemType.Utility));
-
-            var weapon = equipped.Find(i =>
-                i.m_shared.m_itemType == ItemDrop.ItemData.ItemType.OneHandedWeapon ||
-                i.m_shared.m_itemType == ItemDrop.ItemData.ItemType.TwoHandedWeapon ||
-                i.m_shared.m_itemType == ItemDrop.ItemData.ItemType.TwoHandedWeaponLeft ||
-                i.m_shared.m_itemType == ItemDrop.ItemData.ItemType.Bow ||
-                i.m_shared.m_itemType == ItemDrop.ItemData.ItemType.Tool ||
-                i.m_shared.m_itemType == ItemDrop.ItemData.ItemType.Torch);
-            UpdateEquipSlot("Weapon", weapon);
-
-            UpdateEquipSlot("Shield", equipped.Find(i => i.m_shared.m_itemType == ItemDrop.ItemData.ItemType.Shield));
-            UpdateEquipSlot("Ammo", equipped.Find(i => i.m_shared.m_itemType == ItemDrop.ItemData.ItemType.Ammo));
-        }
-
-        private void UpdateEquipSlot(string slotName, ItemDrop.ItemData item)
-        {
-            if (_equipmentSlots.TryGetValue(slotName, out var slot))
-            {
-                slot.SetItem(item);
             }
         }
 
