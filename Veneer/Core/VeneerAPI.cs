@@ -82,6 +82,7 @@ namespace Veneer.Core
             VeneerLayout.Initialize();
             VeneerTooltip.Initialize(_uiRoot);
             VeneerSplitDialog.Initialize(_uiRoot);
+            VeneerFloatingText.Initialize();
 
             // Subscribe to edit mode changes for overlay (only once)
             if (!_initialized)
@@ -242,6 +243,7 @@ namespace Veneer.Core
             HideEditModeOverlay();
             VeneerTooltip.Cleanup();
             VeneerSplitDialog.Cleanup();
+            VeneerFloatingText.Cleanup();
             VeneerTextures.Cleanup();
             VeneerAnchor.Clear();
             VeneerWindowManager.Clear();
@@ -964,6 +966,63 @@ namespace Veneer.Core
         public static void UnregisterHudExtension(IHudExtension extension)
         {
             VeneerExtensionRegistry.UnregisterHudExtension(extension);
+        }
+
+        #endregion
+
+        #region Floating Text
+
+        /// <summary>
+        /// Shows floating damage text at a world position.
+        /// </summary>
+        /// <param name="damage">Damage amount</param>
+        /// <param name="worldPosition">World position to display at</param>
+        /// <param name="isCritical">Is this a critical hit?</param>
+        /// <param name="damageType">Optional damage type for coloring (fire, frost, lightning, poison)</param>
+        /// <param name="isDamageTaken">True if this is damage the local player received (shows in red)</param>
+        public static void ShowDamageText(float damage, Vector3 worldPosition, bool isCritical = false, string damageType = null, bool isDamageTaken = false)
+        {
+            VeneerFloatingText.ShowDamage(damage, worldPosition, isCritical, damageType, isDamageTaken);
+        }
+
+        /// <summary>
+        /// Shows floating healing text at a world position.
+        /// </summary>
+        public static void ShowHealText(float amount, Vector3 worldPosition)
+        {
+            VeneerFloatingText.ShowHeal(amount, worldPosition);
+        }
+
+        /// <summary>
+        /// Shows floating XP gain text at a world position.
+        /// </summary>
+        public static void ShowXPText(long amount, Vector3 worldPosition)
+        {
+            VeneerFloatingText.ShowXP(amount, worldPosition);
+        }
+
+        /// <summary>
+        /// Shows "Miss" text at a world position.
+        /// </summary>
+        public static void ShowMissText(Vector3 worldPosition)
+        {
+            VeneerFloatingText.ShowMiss(worldPosition);
+        }
+
+        /// <summary>
+        /// Shows "Blocked" text at a world position.
+        /// </summary>
+        public static void ShowBlockedText(float amount, Vector3 worldPosition)
+        {
+            VeneerFloatingText.ShowBlocked(amount, worldPosition);
+        }
+
+        /// <summary>
+        /// Shows custom floating text at a world position.
+        /// </summary>
+        public static void ShowFloatingText(string text, Vector3 worldPosition, VeneerFloatingText.TextStyle style = VeneerFloatingText.TextStyle.Normal, float duration = 1.5f)
+        {
+            VeneerFloatingText.Show(text, worldPosition, style, duration);
         }
 
         #endregion
