@@ -755,6 +755,20 @@ namespace Veneer.Core
             }
         }
 
+        /// <summary>
+        /// Gets the HUD root transform (for parenting HUD elements like hotbars, health bars, etc.)
+        /// Use this instead of UIRoot when creating permanent HUD elements.
+        /// </summary>
+        public static Transform HudRoot
+        {
+            get
+            {
+                EnsureInitialized();
+                var veneerHud = Veneer.Vanilla.Replacements.VeneerHud.Instance;
+                return veneerHud?.transform;
+            }
+        }
+
         private static void EnsureInitialized()
         {
             if (!_initialized)
@@ -1023,6 +1037,63 @@ namespace Veneer.Core
         public static void ShowFloatingText(string text, Vector3 worldPosition, VeneerFloatingText.TextStyle style = VeneerFloatingText.TextStyle.Normal, float duration = 1.5f)
         {
             VeneerFloatingText.Show(text, worldPosition, style, duration);
+        }
+
+        #endregion
+
+        #region Hotbar Control
+
+        private static bool _hotbarEnabled = true;
+
+        /// <summary>
+        /// Gets or sets whether the VeneerHotbar is enabled.
+        /// When disabled, the hotbar will be hidden and other mods can provide their own hotbar.
+        /// </summary>
+        public static bool HotbarEnabled
+        {
+            get => _hotbarEnabled;
+            set
+            {
+                if (_hotbarEnabled == value) return;
+                _hotbarEnabled = value;
+                UpdateHotbarVisibility();
+            }
+        }
+
+        /// <summary>
+        /// Updates the hotbar visibility based on HotbarEnabled setting.
+        /// </summary>
+        private static void UpdateHotbarVisibility()
+        {
+            try
+            {
+                var veneerHud = Veneer.Vanilla.Replacements.VeneerHud.Instance;
+                if (veneerHud?.Hotbar != null)
+                {
+                    veneerHud.Hotbar.gameObject.SetActive(_hotbarEnabled);
+                    Plugin.Log.LogInfo($"VeneerHotbar visibility set to: {_hotbarEnabled}");
+                }
+            }
+            catch (System.Exception ex)
+            {
+                Plugin.Log.LogWarning($"Failed to update hotbar visibility: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Disables the VeneerHotbar. Call this if your mod provides its own hotbar replacement.
+        /// </summary>
+        public static void DisableHotbar()
+        {
+            HotbarEnabled = false;
+        }
+
+        /// <summary>
+        /// Enables the VeneerHotbar.
+        /// </summary>
+        public static void EnableHotbar()
+        {
+            HotbarEnabled = true;
         }
 
         #endregion

@@ -122,11 +122,16 @@ namespace Veneer.Vanilla.Replacements
                 Plugin.Log.LogDebug("Created VeneerBossGroup");
             }
 
-            // Create hotbar
-            if (VeneerConfig.ReplaceHotbar.Value)
+            // Create hotbar only if enabled (both config AND API must allow it)
+            // If HotbarEnabled is false, another mod is providing its own hotbar replacement
+            if (VeneerConfig.ReplaceHotbar.Value && Core.VeneerAPI.HotbarEnabled)
             {
                 _hotbar = VeneerHotbar.Create(transform);
                 Plugin.Log.LogDebug("Created VeneerHotbar");
+            }
+            else if (!Core.VeneerAPI.HotbarEnabled)
+            {
+                Plugin.Log.LogInfo("VeneerHotbar NOT created - another mod is providing hotbar replacement");
             }
 
             _initialized = true;

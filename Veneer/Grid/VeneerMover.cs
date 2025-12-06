@@ -203,6 +203,18 @@ namespace Veneer.Grid
             if (EditModeEnabled && gameObject.activeInHierarchy)
             {
                 _overlay.SetActive(true);
+
+                // Ensure overlay fills parent correctly - reset anchors and offsets
+                // This fixes misalignment that can occur when parent's RectTransform changes
+                var overlayRect = _overlay.GetComponent<RectTransform>();
+                if (overlayRect != null)
+                {
+                    overlayRect.anchorMin = Vector2.zero;
+                    overlayRect.anchorMax = Vector2.one;
+                    overlayRect.offsetMin = Vector2.zero;
+                    overlayRect.offsetMax = Vector2.zero;
+                }
+
                 _overlay.transform.SetAsLastSibling();
                 EnsureOverlayOnTop();
             }
@@ -291,6 +303,18 @@ namespace Veneer.Grid
             if (_overlay != null)
             {
                 _overlay.SetActive(true);
+
+                // Ensure overlay fills parent correctly - reset anchors and offsets
+                // This fixes misalignment that can occur when parent's RectTransform changes
+                var overlayRect = _overlay.GetComponent<RectTransform>();
+                if (overlayRect != null)
+                {
+                    overlayRect.anchorMin = Vector2.zero;
+                    overlayRect.anchorMax = Vector2.one;
+                    overlayRect.offsetMin = Vector2.zero;
+                    overlayRect.offsetMax = Vector2.zero;
+                }
+
                 _overlay.transform.SetAsLastSibling();
                 EnsureOverlayOnTop();
             }
@@ -433,6 +457,18 @@ namespace Veneer.Grid
                 if (_overlay != null)
                 {
                     _overlay.SetActive(true);
+
+                    // Ensure overlay fills parent correctly - reset anchors and offsets
+                    // This fixes misalignment that can occur when parent's RectTransform changes
+                    var overlayRect = _overlay.GetComponent<RectTransform>();
+                    if (overlayRect != null)
+                    {
+                        overlayRect.anchorMin = Vector2.zero;
+                        overlayRect.anchorMax = Vector2.one;
+                        overlayRect.offsetMin = Vector2.zero;
+                        overlayRect.offsetMax = Vector2.zero;
+                    }
+
                     _overlay.transform.SetAsLastSibling();
                     EnsureOverlayOnTop();
                 }

@@ -98,19 +98,26 @@ namespace Veneer.Vanilla.Replacements
             // Register with anchor system - top right
             VeneerAnchor.Register(ElementId, ScreenAnchor.TopRight, new Vector2(-20, -20));
 
-            // Use flexible button widths based on content
-            // Inventory, Crafting, Skills, Trophies, Compendium, Map, PvP
+            // Button sizing constants
             float[] buttonWidths = { 70f, 70f, 55f, 70f, 90f, 45f, 50f };
             float buttonHeight = 28f;
             float spacing = 4f;
             float padding = 8f;
 
-            float totalWidth = 0;
-            foreach (var w in buttonWidths) totalWidth += w;
-            totalWidth += spacing * (buttonWidths.Length - 1) + padding * 2;
-            float totalHeight = buttonHeight + padding * 2;
+            // Add HorizontalLayoutGroup with padding to QuickBar for proper sizing
+            var quickBarLayout = gameObject.AddComponent<HorizontalLayoutGroup>();
+            quickBarLayout.padding = new RectOffset((int)padding, (int)padding, (int)padding, (int)padding);
+            quickBarLayout.childAlignment = TextAnchor.MiddleCenter;
+            quickBarLayout.childControlWidth = true;
+            quickBarLayout.childControlHeight = true;
+            quickBarLayout.childForceExpandWidth = false;
+            quickBarLayout.childForceExpandHeight = false;
 
-            SetSize(totalWidth, totalHeight);
+            // Use ContentSizeFitter to auto-resize based on button content
+            var sizeFitter = gameObject.AddComponent<ContentSizeFitter>();
+            sizeFitter.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
+            sizeFitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
             AnchorTo(AnchorPreset.TopRight, new Vector2(-20, -20));
 
             // Background
@@ -119,7 +126,7 @@ namespace Veneer.Vanilla.Replacements
             _backgroundImage.type = Image.Type.Sliced;
             _backgroundImage.color = VeneerColors.Background;
 
-            // Border
+            // Border - ignored by layout, stretches to fill parent
             var borderGo = CreateUIObject("Border", transform);
             var borderRect = borderGo.GetComponent<RectTransform>();
             borderRect.anchorMin = Vector2.zero;
@@ -127,20 +134,28 @@ namespace Veneer.Vanilla.Replacements
             borderRect.offsetMin = Vector2.zero;
             borderRect.offsetMax = Vector2.zero;
 
+            // Ignore layout so border stretches over everything
+            var borderLayout = borderGo.AddComponent<LayoutElement>();
+            borderLayout.ignoreLayout = true;
+
             _borderImage = borderGo.AddComponent<Image>();
             var borderTex = VeneerTextures.CreateSlicedBorderTexture(16, VeneerColors.Border, Color.clear, 1);
             _borderImage.sprite = VeneerTextures.CreateSlicedSprite(borderTex, 1);
             _borderImage.type = Image.Type.Sliced;
             _borderImage.raycastTarget = false;
 
-            // Content with horizontal layout
+            // Content container with horizontal layout for buttons
             var content = CreateUIObject("Content", transform);
             _buttonContainer = content.transform;
-            var contentRect = content.GetComponent<RectTransform>();
-            contentRect.anchorMin = Vector2.zero;
-            contentRect.anchorMax = Vector2.one;
-            contentRect.offsetMin = new Vector2(padding, padding);
-            contentRect.offsetMax = new Vector2(-padding, -padding);
+
+            // Content needs LayoutElement and ContentSizeFitter so parent layout respects its size
+            var contentLayoutElement = content.AddComponent<LayoutElement>();
+            contentLayoutElement.minHeight = buttonHeight;
+            contentLayoutElement.preferredHeight = buttonHeight;
+
+            var contentSizeFitter = content.AddComponent<ContentSizeFitter>();
+            contentSizeFitter.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
+            contentSizeFitter.verticalFit = ContentSizeFitter.FitMode.Unconstrained;
 
             var layout = content.AddComponent<HorizontalLayoutGroup>();
             layout.childAlignment = TextAnchor.MiddleCenter;
@@ -163,14 +178,9 @@ namespace Veneer.Vanilla.Replacements
             // Set initial button styles
             UpdateAllButtonStyles();
 
-            // Add mover
+            // Add mover (no resizer - QuickBar auto-sizes based on buttons)
             var mover = gameObject.AddComponent<VeneerMover>();
             mover.ElementId = ElementId;
-
-            // Add resizer
-            var resizer = gameObject.AddComponent<VeneerResizer>();
-            resizer.MinSize = new Vector2(200, 30);
-            resizer.MaxSize = new Vector2(800, 80);
 
             // Apply saved position
             var savedData = VeneerAnchor.GetAnchorData(ElementId);
@@ -244,8 +254,16 @@ namespace Veneer.Vanilla.Replacements
 
             var layoutElement = button.gameObject.AddComponent<LayoutElement>();
             layoutElement.preferredWidth = width;
+            layoutElement.minHeight = 28f;
+            layoutElement.preferredHeight = 28f;
 
             Plugin.Log.LogDebug($"VeneerQuickBar: Created button '{label}' - raycastTarget={button.gameObject.GetComponent<UnityEngine.UI.Image>()?.raycastTarget}");
+
+            // Force layout rebuild so QuickBar resizes to fit new button
+            if (_instance != null)
+            {
+                LayoutRebuilder.ForceRebuildLayoutImmediate(_instance.RectTransform);
+            }
 
             return button;
         }

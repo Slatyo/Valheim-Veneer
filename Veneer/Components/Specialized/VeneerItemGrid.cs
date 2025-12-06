@@ -265,6 +265,12 @@ namespace Veneer.Components.Specialized
 
         private void HandleSlotClick(VeneerItemSlot slot, PointerEventData eventData)
         {
+            // Block interactions while split dialog is open
+            if (VeneerSplitDialog.IsShowing)
+            {
+                return;
+            }
+
             OnSlotClicked?.Invoke(slot, eventData);
 
             var player = Player.m_localPlayer;
@@ -374,12 +380,48 @@ namespace Veneer.Components.Specialized
             var item = sourceSlot.Item;
             if (item == null || item.m_stack <= 1) return;
 
+            // Store original stack count for validation
+            int originalStack = item.m_stack;
+
             VeneerSplitDialog.Show(item, item.m_stack, (splitAmount) =>
             {
-                if (_inventory == null || splitAmount <= 0 || splitAmount >= item.m_stack) return;
+                // Validate inventory still exists
+                if (_inventory == null)
+                {
+                    Plugin.Log.LogWarning("[VeneerItemGrid] Inventory is null during split callback");
+                    return;
+                }
 
-                // Pick up split amount to cursor
+                // Validate split amount
+                if (splitAmount <= 0 || splitAmount >= item.m_stack)
+                {
+                    Plugin.Log.LogDebug($"[VeneerItemGrid] Invalid split amount: {splitAmount} (stack: {item.m_stack})");
+                    return;
+                }
+
+                // Validate item still exists in inventory with expected stack
+                if (!_inventory.ContainsItem(item))
+                {
+                    Plugin.Log.LogWarning("[VeneerItemGrid] Item no longer in inventory during split");
+                    UpdateAllSlots();
+                    return;
+                }
+
+                // Check if stack was modified while dialog was open
+                if (item.m_stack != originalStack)
+                {
+                    Plugin.Log.LogWarning($"[VeneerItemGrid] Item stack changed during split dialog: {originalStack} -> {item.m_stack}");
+                    UpdateAllSlots();
+                    return;
+                }
+
+                // All validation passed - pick up split amount to cursor
                 VeneerItemCursor.PickupItem(item, _inventory, splitAmount, true);
+                UpdateAllSlots();
+            },
+            () =>
+            {
+                // On cancel - just refresh the display
                 UpdateAllSlots();
             });
         }

@@ -64,6 +64,10 @@ namespace Veneer.Vanilla.Patches
                     _largeMapFrame.Hide();
                     _largeMapFrame.gameObject.SetActive(false);
                     _isLargeMapShowing = false;
+
+                    // Notify VeneerCursor that map was closed
+                    VeneerCursor.OnMapStateChanged(false);
+
                     // Let vanilla close its internal state
                     __instance.SetMapMode(Minimap.MapMode.Small);
                     return false;
@@ -77,6 +81,9 @@ namespace Veneer.Vanilla.Patches
                     _largeMapFrame.Show();
                     _isLargeMapShowing = true;
                     Plugin.Log.LogInfo($"MapPatches: Large map opened, activeSelf={_largeMapFrame.gameObject.activeSelf}");
+
+                    // Notify VeneerCursor that map was opened
+                    VeneerCursor.OnMapStateChanged(true);
                 }
 
                 // LET vanilla run so it sets internal mode to Large (needed for map rendering)
@@ -92,7 +99,15 @@ namespace Veneer.Vanilla.Patches
                     _largeMapFrame.Hide();
                     _largeMapFrame.gameObject.SetActive(false);
                 }
+
+                bool wasOpen = _isLargeMapShowing;
                 _isLargeMapShowing = false;
+
+                // Notify VeneerCursor that map was closed
+                if (wasOpen)
+                {
+                    VeneerCursor.OnMapStateChanged(false);
+                }
 
                 // Reset pan state
                 MapPanPatches.Reset();

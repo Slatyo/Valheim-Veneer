@@ -156,22 +156,36 @@ namespace Veneer.Core
 
             if (isHolding)
             {
+                // Validate item still exists and has expected stack
+                if (!sourceInv.ContainsItem(heldItem))
+                {
+                    Plugin.Log.LogWarning("[VeneerItemCursor] Held item no longer in source inventory");
+                    ClearHold();
+                    return;
+                }
+
                 // Placing held item
                 if (item == null)
                 {
                     // Empty slot - place item
                     if (heldAmount < heldItem.m_stack)
                     {
-                        // Partial stack - clone and place
+                        // Partial stack - create new item at target position
+                        // Don't clone - create fresh to avoid reference issues
                         var splitItem = heldItem.Clone();
                         splitItem.m_stack = heldAmount;
-                        splitItem.m_gridPos = pos;
-                        if (inventory.AddItem(splitItem))
+
+                        // Use the overload that places at specific position
+                        if (inventory.AddItem(splitItem, heldAmount, pos.x, pos.y))
                         {
                             heldItem.m_stack -= heldAmount;
                             sourceInv.Changed();
                             ClearHold();
                             OnItemPlaced?.Invoke(splitItem, inventory);
+                        }
+                        else
+                        {
+                            Plugin.Log.LogWarning("[VeneerItemCursor] Failed to add split item to target inventory");
                         }
                     }
                     else
@@ -194,13 +208,15 @@ namespace Veneer.Core
 
                         if (heldAmount <= toAdd)
                         {
-                            // All placed
+                            // All held amount was placed
                             if (heldAmount >= heldItem.m_stack)
                             {
+                                // Placing entire item - remove from source
                                 sourceInv.RemoveItem(heldItem);
                             }
                             else
                             {
+                                // Placing partial - reduce source stack
                                 heldItem.m_stack -= heldAmount;
                                 sourceInv.Changed();
                             }
@@ -209,17 +225,32 @@ namespace Veneer.Core
                         }
                         else
                         {
-                            // Partial - update held amount
-                            heldItem.m_stack -= toAdd;
-                            sourceInv.Changed();
+                            // Only partial amount fit - reduce source and update held amount
+                            if (heldAmount >= heldItem.m_stack)
+                            {
+                                // Was holding full stack, reduce it
+                                heldItem.m_stack -= toAdd;
+                                sourceInv.Changed();
+                            }
+                            else
+                            {
+                                // Was holding partial, reduce source
+                                heldItem.m_stack -= toAdd;
+                                sourceInv.Changed();
+                            }
                             _dragAmountField?.SetValue(InventoryGui.instance, heldAmount - toAdd);
                         }
                     }
                 }
                 else if (heldAmount >= heldItem.m_stack)
                 {
-                    // Swap items
+                    // Swap items - only allowed when holding full stack
                     SwapItems(sourceInv, heldItem, inventory, item, pos);
+                }
+                else
+                {
+                    // Holding partial stack, can't swap - do nothing
+                    Plugin.Log.LogDebug("[VeneerItemCursor] Can't swap with partial stack");
                 }
             }
             else if (item != null)
