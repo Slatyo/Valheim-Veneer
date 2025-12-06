@@ -25,6 +25,7 @@ namespace Veneer.Components.Specialized
         private int _width;
         private int _height;
         private float _slotSize;
+        private bool _hideEquippedItems;
 
         // Drag state (for drag-and-drop within same grid)
         private VeneerItemSlot _draggedSlot;
@@ -45,6 +46,16 @@ namespace Veneer.Components.Specialized
         /// The inventory being displayed.
         /// </summary>
         public Inventory GridInventory => _inventory;
+
+        /// <summary>
+        /// When true, equipped items will not be displayed in the grid.
+        /// The slot will appear empty but the item remains in the inventory.
+        /// </summary>
+        public bool HideEquippedItems
+        {
+            get => _hideEquippedItems;
+            set => _hideEquippedItems = value;
+        }
 
         /// <summary>
         /// Called when an item is moved.
@@ -212,7 +223,16 @@ namespace Veneer.Components.Specialized
                 {
                     var item = _inventory.GetItemAt(x, y);
                     var slot = GetSlot(x, y);
-                    slot?.SetItem(item);
+
+                    // Hide equipped items if enabled
+                    if (_hideEquippedItems && item != null && item.m_equipped)
+                    {
+                        slot?.Clear();
+                    }
+                    else
+                    {
+                        slot?.SetItem(item);
+                    }
                 }
             }
         }
