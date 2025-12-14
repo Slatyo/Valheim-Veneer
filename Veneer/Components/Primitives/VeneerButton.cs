@@ -144,6 +144,7 @@ namespace Veneer.Components.Primitives
             _label.fontSize = VeneerConfig.GetScaledFontSize(VeneerDimensions.FontSizeNormal);
             _label.color = VeneerColors.Text;
             _label.alignment = TextAnchor.MiddleCenter;
+            _label.horizontalOverflow = HorizontalWrapMode.Overflow;
             _label.raycastTarget = false;
 
             // Button component

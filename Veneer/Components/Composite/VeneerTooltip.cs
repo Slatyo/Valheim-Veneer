@@ -134,19 +134,45 @@ namespace Veneer.Components.Composite
         {
             base.Awake();
             _instance = this;
+
+            // Subscribe to cursor mode changes to hide tooltip when cursor is hidden
+            VeneerCursor.OnCursorModeChanged += OnCursorModeChanged;
         }
 
         protected override void OnDestroy()
         {
             base.OnDestroy();
+
+            // Unsubscribe from cursor mode changes
+            VeneerCursor.OnCursorModeChanged -= OnCursorModeChanged;
+
             if (_instance == this)
                 _instance = null;
+        }
+
+        /// <summary>
+        /// Called when cursor mode changes. Hides tooltip if cursor becomes hidden.
+        /// </summary>
+        private void OnCursorModeChanged(bool cursorVisible)
+        {
+            if (!cursorVisible && _isShowing)
+            {
+                HideInternal();
+            }
         }
 
         private void Update()
         {
             if (_isShowing)
             {
+                // Safety check: hide tooltip if cursor is no longer visible
+                // This catches edge cases where cursor is hidden without OnCursorModeChanged firing
+                if (!Cursor.visible || Cursor.lockState == CursorLockMode.Locked)
+                {
+                    HideInternal();
+                    return;
+                }
+
                 UpdatePosition();
             }
         }

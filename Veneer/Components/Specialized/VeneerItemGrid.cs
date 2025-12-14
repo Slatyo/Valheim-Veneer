@@ -224,7 +224,9 @@ namespace Veneer.Components.Specialized
                     var item = _inventory.GetItemAt(x, y);
                     var slot = GetSlot(x, y);
 
-                    // Hide equipped items if enabled
+                    // With Viking's EquipmentInventory, equipped items are stored separately
+                    // and won't appear in the main inventory. HideEquippedItems is kept for
+                    // backward compatibility but should no longer be needed.
                     if (_hideEquippedItems && item != null && item.m_equipped)
                     {
                         slot?.Clear();

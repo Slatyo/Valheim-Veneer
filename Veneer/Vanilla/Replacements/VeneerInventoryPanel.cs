@@ -131,11 +131,12 @@ namespace Veneer.Vanilla.Replacements
         {
             float yPos = 0;
 
-            // Bag section (equipment moved to Viking Character Window)
+            // Bag section (equipment moved to Viking Character Window via EquipmentInventory)
             CreateSectionLabel(content, "BAG", 0, yPos, bagWidth);
             yPos -= LABEL_HEIGHT + innerSpacing;
             _inventoryGrid = CreateItemGrid(content, "InventoryGrid", 0, yPos, INV_COLS, INV_ROWS, innerSpacing);
-            _inventoryGrid.HideEquippedItems = true; // Equipment shown in Character Window
+            // Note: HideEquippedItems no longer needed - Viking's EquipmentInventory stores
+            // equipped items separately, so they won't appear in the main inventory at all.
             yPos -= bagHeight + spacing;
 
             // Quickslots section

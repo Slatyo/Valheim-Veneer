@@ -99,7 +99,6 @@ namespace Veneer.Vanilla.Replacements
             VeneerAnchor.Register(ElementId, ScreenAnchor.TopRight, new Vector2(-20, -20));
 
             // Button sizing constants
-            float[] buttonWidths = { 70f, 70f, 55f, 70f, 90f, 45f, 50f };
             float buttonHeight = 28f;
             float spacing = 4f;
             float padding = 8f;
@@ -165,15 +164,14 @@ namespace Veneer.Vanilla.Replacements
             layout.childForceExpandHeight = true;
             layout.spacing = spacing;
 
-            // Create quick access buttons with proper widths
-            int idx = 0;
-            _inventoryTab = CreateButton(content.transform, "Inventory", buttonWidths[idx++], () => ToggleWindow("inventory"));
-            _craftingTab = CreateButton(content.transform, "Crafting", buttonWidths[idx++], () => ToggleWindow("crafting"));
-            _skillsTab = CreateButton(content.transform, "Skills", buttonWidths[idx++], () => ToggleWindow("skills"));
-            _trophiesTab = CreateButton(content.transform, "Trophies", buttonWidths[idx++], () => ToggleWindow("trophies"));
-            _compendiumTab = CreateButton(content.transform, "Compendium", buttonWidths[idx++], () => ToggleWindow("compendium"));
-            _mapTab = CreateButton(content.transform, "Map", buttonWidths[idx++], () => ToggleWindow("map"));
-            _pvpToggle = CreateButton(content.transform, "PvP", buttonWidths[idx++], () => TogglePvP());
+            // Create quick access buttons with auto-width based on text content
+            _inventoryTab = CreateButton(content.transform, "Inventory", () => ToggleWindow("inventory"));
+            _craftingTab = CreateButton(content.transform, "Crafting", () => ToggleWindow("crafting"));
+            _skillsTab = CreateButton(content.transform, "Skills", () => ToggleWindow("skills"));
+            _trophiesTab = CreateButton(content.transform, "Trophies", () => ToggleWindow("trophies"));
+            _compendiumTab = CreateButton(content.transform, "Compendium", () => ToggleWindow("compendium"));
+            _mapTab = CreateButton(content.transform, "Map", () => ToggleWindow("map"));
+            _pvpToggle = CreateButton(content.transform, "PvP", () => TogglePvP());
 
             // Set initial button styles
             UpdateAllButtonStyles();
@@ -229,20 +227,97 @@ namespace Veneer.Vanilla.Replacements
             UpdateAllButtonStyles();
         }
 
-        private VeneerButton CreateButton(Transform parent, string label, float width, Action onClick)
+        private VeneerButton CreateButton(Transform parent, string label, Action onClick)
         {
-            return CreateQuickBarButton(parent, label, width, onClick);
+            return CreateQuickBarButton(parent, label, onClick);
         }
 
         /// <summary>
-        /// Creates a button styled for the QuickBar.
+        /// Creates a button styled for the QuickBar with auto-width based on text content.
         /// Extensions can use this to add buttons that match the QuickBar's style.
         /// </summary>
         /// <param name="parent">Parent transform (use QuickBarContext.ButtonContainer)</param>
         /// <param name="label">Button label text</param>
-        /// <param name="width">Button width in pixels</param>
+        /// <param name="onClick">Click callback</param>
+        /// <param name="minWidth">Optional minimum width in pixels (default: 40)</param>
+        /// <returns>The created button</returns>
+        public static VeneerButton CreateQuickBarButton(Transform parent, string label, Action onClick, float minWidth = 40f)
+        {
+            var button = VeneerButton.CreateTab(parent, label, () =>
+            {
+                Plugin.Log.LogInfo($"VeneerQuickBar: Button '{label}' clicked!");
+                onClick?.Invoke();
+            });
+            button.SetButtonSize(ButtonSize.Small);
+
+            // Make border ignore layout (it stretches to fill, shouldn't affect sizing)
+            var borderTransform = button.transform.Find("Border");
+            if (borderTransform != null)
+            {
+                var borderLayout = borderTransform.gameObject.AddComponent<LayoutElement>();
+                borderLayout.ignoreLayout = true;
+            }
+
+            // Reconfigure label for auto-sizing: center anchors instead of stretch
+            var labelTransform = button.transform.Find("Label");
+            if (labelTransform != null)
+            {
+                var labelRect = labelTransform.GetComponent<RectTransform>();
+                labelRect.anchorMin = new Vector2(0.5f, 0.5f);
+                labelRect.anchorMax = new Vector2(0.5f, 0.5f);
+                labelRect.pivot = new Vector2(0.5f, 0.5f);
+                labelRect.anchoredPosition = Vector2.zero;
+
+                // Add ContentSizeFitter to label so it sizes to text
+                var labelSizeFitter = labelTransform.gameObject.AddComponent<ContentSizeFitter>();
+                labelSizeFitter.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
+                labelSizeFitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            }
+
+            // Add HorizontalLayoutGroup to button for proper padding around label
+            var layoutGroup = button.gameObject.AddComponent<HorizontalLayoutGroup>();
+            layoutGroup.childAlignment = TextAnchor.MiddleCenter;
+            layoutGroup.childControlWidth = false;
+            layoutGroup.childControlHeight = false;
+            layoutGroup.childForceExpandWidth = false;
+            layoutGroup.childForceExpandHeight = false;
+            layoutGroup.padding = new RectOffset(
+                (int)VeneerDimensions.Padding + 2,
+                (int)VeneerDimensions.Padding + 2,
+                0, 0
+            );
+
+            // Add ContentSizeFitter to button for auto-width
+            var sizeFitter = button.gameObject.AddComponent<ContentSizeFitter>();
+            sizeFitter.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
+            sizeFitter.verticalFit = ContentSizeFitter.FitMode.Unconstrained;
+
+            var layoutElement = button.gameObject.AddComponent<LayoutElement>();
+            layoutElement.minWidth = minWidth;
+            layoutElement.minHeight = 28f;
+            layoutElement.preferredHeight = 28f;
+
+            Plugin.Log.LogDebug($"VeneerQuickBar: Created button '{label}' - raycastTarget={button.gameObject.GetComponent<UnityEngine.UI.Image>()?.raycastTarget}");
+
+            // Force layout rebuild so QuickBar resizes to fit new button
+            if (_instance != null)
+            {
+                LayoutRebuilder.ForceRebuildLayoutImmediate(_instance.RectTransform);
+            }
+
+            return button;
+        }
+
+        /// <summary>
+        /// Creates a button styled for the QuickBar with fixed width.
+        /// Use the auto-width overload (without width parameter) for responsive buttons.
+        /// </summary>
+        /// <param name="parent">Parent transform (use QuickBarContext.ButtonContainer)</param>
+        /// <param name="label">Button label text</param>
+        /// <param name="width">Fixed button width in pixels</param>
         /// <param name="onClick">Click callback</param>
         /// <returns>The created button</returns>
+        [Obsolete("Use CreateQuickBarButton(parent, label, onClick, minWidth) for auto-width buttons")]
         public static VeneerButton CreateQuickBarButton(Transform parent, string label, float width, Action onClick)
         {
             var button = VeneerButton.CreateTab(parent, label, () =>
