@@ -6,6 +6,12 @@ namespace Veneer.Theme
     /// </summary>
     public static class VeneerDimensions
     {
+        // Corner radius (4-6px for subtle rounding)
+        public const float CornerRadius = 5f;
+        public const float CornerRadiusSmall = 4f;
+        public const float CornerRadiusLarge = 6f;
+        public const float CornerRadiusPill = 12f;          // For fully rounded buttons/tags
+
         // Border widths
         public const float BorderWidth = 1f;
         public const float BorderWidthThick = 2f;
