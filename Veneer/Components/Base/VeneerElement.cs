@@ -89,8 +89,24 @@ namespace Veneer.Components.Base
         /// </summary>
         public event Action OnDestroyed;
 
+        /// <summary>
+        /// Whether to animate show/hide transitions.
+        /// </summary>
+        public bool AnimateShowHide { get; set; } = false;
+
+        /// <summary>
+        /// The animation type for showing this element.
+        /// </summary>
+        public AnimationType ShowAnimationType { get; set; } = AnimationType.FadeScale;
+
+        /// <summary>
+        /// The animation type for hiding this element.
+        /// </summary>
+        public AnimationType HideAnimationType { get; set; } = AnimationType.FadeScale;
+
         private CanvasGroup _canvasGroup;
         private Canvas _layerCanvas;
+        private VeneerShowHideAnimator _animator;
         private bool _isVisible = true;
         private bool _isRegistered = false;
 
@@ -206,8 +222,21 @@ namespace Veneer.Components.Base
         /// </summary>
         public virtual void Show()
         {
-            IsVisible = true;
-            OnShow?.Invoke();
+            if (AnimateShowHide && ShowAnimationType != AnimationType.None)
+            {
+                // Ensure element is active first (animation needs to run)
+                gameObject.SetActive(true);
+                _isVisible = true;
+
+                EnsureAnimator();
+                _animator.ShowAnimation = ShowAnimationType;
+                _animator.AnimateShow(() => OnShow?.Invoke());
+            }
+            else
+            {
+                IsVisible = true;
+                OnShow?.Invoke();
+            }
         }
 
         /// <summary>
@@ -215,6 +244,46 @@ namespace Veneer.Components.Base
         /// </summary>
         public virtual void Hide()
         {
+            if (AnimateShowHide && HideAnimationType != AnimationType.None)
+            {
+                EnsureAnimator();
+                _animator.HideAnimation = HideAnimationType;
+                _animator.AnimateHide(() =>
+                {
+                    gameObject.SetActive(false);
+                    _isVisible = false;
+                    OnHide?.Invoke();
+                });
+            }
+            else
+            {
+                IsVisible = false;
+                OnHide?.Invoke();
+            }
+        }
+
+        /// <summary>
+        /// Shows immediately without animation.
+        /// </summary>
+        public void ShowImmediate()
+        {
+            if (_animator != null)
+            {
+                _animator.ShowImmediate();
+            }
+            IsVisible = true;
+            OnShow?.Invoke();
+        }
+
+        /// <summary>
+        /// Hides immediately without animation.
+        /// </summary>
+        public void HideImmediate()
+        {
+            if (_animator != null)
+            {
+                _animator.HideImmediate();
+            }
             IsVisible = false;
             OnHide?.Invoke();
         }
@@ -419,6 +488,41 @@ namespace Veneer.Components.Base
                     _canvasGroup = gameObject.AddComponent<CanvasGroup>();
                 }
             }
+        }
+
+        /// <summary>
+        /// Ensures the show/hide animator component exists.
+        /// </summary>
+        protected void EnsureAnimator()
+        {
+            if (_animator == null)
+            {
+                _animator = GetComponent<VeneerShowHideAnimator>();
+                if (_animator == null)
+                {
+                    _animator = gameObject.AddComponent<VeneerShowHideAnimator>();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Enables animations with the specified animation types.
+        /// </summary>
+        /// <param name="showType">Animation for showing.</param>
+        /// <param name="hideType">Animation for hiding.</param>
+        public void EnableAnimations(AnimationType showType = AnimationType.FadeScale, AnimationType hideType = AnimationType.FadeScale)
+        {
+            AnimateShowHide = true;
+            ShowAnimationType = showType;
+            HideAnimationType = hideType;
+        }
+
+        /// <summary>
+        /// Disables show/hide animations.
+        /// </summary>
+        public void DisableAnimations()
+        {
+            AnimateShowHide = false;
         }
 
         private void ApplyAnchorPreset(AnchorPreset preset)
