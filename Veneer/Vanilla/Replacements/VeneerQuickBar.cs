@@ -349,6 +349,14 @@ namespace Veneer.Vanilla.Replacements
         public override void Show()
         {
             gameObject.SetActive(true);
+
+            // Sync PvP state from player on show
+            var player = Player.m_localPlayer;
+            if (player != null)
+            {
+                _pvpState = player.IsPVPEnabled();
+            }
+
             UpdatePvPButtonVisual();
             UpdateAllButtonStyles();
         }
@@ -438,6 +446,8 @@ namespace Veneer.Vanilla.Replacements
         private bool _pvpState = false;
         private float _lastPvPToggleTime = 0f;
         private const float PVP_TOGGLE_COOLDOWN = 0.5f;
+        private float _pvpSyncGracePeriod = 0f;
+        private const float PVP_SYNC_GRACE_DURATION = 1.5f;  // Grace period before Update() syncs from player
 
         private void TogglePvP()
         {
@@ -458,15 +468,17 @@ namespace Veneer.Vanilla.Replacements
 
                 Plugin.Log.LogInfo($"PvP: Current={currentState}, Attempting to set to {newState}");
 
-                // Set the new state
+                // Set the new state - this uses RPC so the change may not be immediate
                 player.SetPVP(newState);
 
-                // Read back the state to see if it actually changed
-                bool actualState = player.IsPVPEnabled();
-                _pvpState = actualState;
-
-                Plugin.Log.LogInfo($"PvP: After SetPVP({newState}), actual state is now {actualState}");
+                // Update our visual state to the intended state
+                // Start grace period so Update() doesn't immediately revert the visual
+                // (the RPC needs time to be processed by server)
+                _pvpState = newState;
+                _pvpSyncGracePeriod = PVP_SYNC_GRACE_DURATION;
                 UpdatePvPButtonVisual();
+
+                Plugin.Log.LogInfo($"PvP: Set visual to {newState}, grace period started");
             }
             else
             {
@@ -478,14 +490,7 @@ namespace Veneer.Vanilla.Replacements
         {
             if (_pvpToggle == null) return;
 
-            var player = Player.m_localPlayer;
-            if (player != null)
-            {
-                // Sync our state with player state using proper accessor
-                _pvpState = player.IsPVPEnabled();
-            }
-
-            // Update button appearance based on PvP state
+            // Update button appearance based on _pvpState (don't sync from player here - Update() handles that)
             _pvpToggle.Label = _pvpState ? "PvP ON" : "PvP";
 
             // Change button style to indicate state
@@ -505,6 +510,13 @@ namespace Veneer.Vanilla.Replacements
 
         private void Update()
         {
+            // Update grace period timer
+            if (_pvpSyncGracePeriod > 0)
+            {
+                _pvpSyncGracePeriod -= Time.deltaTime;
+                return;  // Don't sync during grace period - give RPC time to process
+            }
+
             // Sync PvP state with player (in case changed elsewhere)
             var player = Player.m_localPlayer;
             if (player != null && player.IsPVPEnabled() != _pvpState)
