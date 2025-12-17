@@ -173,8 +173,19 @@ namespace Veneer.Components.Primitives
         {
             SetSize(width, height);
 
-            // Background
+            int cornerRadius = (int)VeneerDimensions.CornerRadiusSmall;
+
+            // Background with rounded corners
             _backgroundImage = gameObject.AddComponent<Image>();
+            var bgTexture = VeneerTextures.CreateRoundedRectTexture(
+                32,
+                Color.white,
+                Color.clear,
+                cornerRadius,
+                0
+            );
+            _backgroundImage.sprite = VeneerTextures.CreateRoundedSprite(bgTexture, cornerRadius);
+            _backgroundImage.type = Image.Type.Sliced;
             _backgroundImage.color = VeneerColors.BackgroundDark;
 
             // Fill container (for clipping)
@@ -182,8 +193,8 @@ namespace Veneer.Components.Primitives
             var containerRect = fillContainer.GetComponent<RectTransform>();
             containerRect.anchorMin = Vector2.zero;
             containerRect.anchorMax = Vector2.one;
-            containerRect.offsetMin = Vector2.one; // 1px padding for border
-            containerRect.offsetMax = -Vector2.one;
+            containerRect.offsetMin = new Vector2(2, 2); // Padding for border
+            containerRect.offsetMax = new Vector2(-2, -2);
 
             // Fill bar
             var fillGo = CreateUIObject("Fill", fillContainer.transform);
@@ -195,9 +206,20 @@ namespace Veneer.Components.Primitives
             _fillRect.offsetMax = Vector2.zero;
 
             _fillImage = fillGo.AddComponent<Image>();
+            // Use smaller corner radius for fill to fit inside
+            int fillRadius = Mathf.Max(1, cornerRadius - 2);
+            var fillTexture = VeneerTextures.CreateRoundedRectTexture(
+                32,
+                Color.white,
+                Color.clear,
+                fillRadius,
+                0
+            );
+            _fillImage.sprite = VeneerTextures.CreateRoundedSprite(fillTexture, fillRadius);
+            _fillImage.type = Image.Type.Sliced;
             _fillImage.color = VeneerColors.Accent;
 
-            // Border
+            // Border with rounded corners
             var borderGo = CreateUIObject("Border", transform);
             var borderRect = borderGo.GetComponent<RectTransform>();
             borderRect.anchorMin = Vector2.zero;
@@ -206,9 +228,16 @@ namespace Veneer.Components.Primitives
             borderRect.offsetMax = Vector2.zero;
 
             _borderImage = borderGo.AddComponent<Image>();
-            var borderTexture = VeneerTextures.CreateSlicedBorderTexture(16, VeneerColors.Border, Color.clear, 1);
-            _borderImage.sprite = VeneerTextures.CreateSlicedSprite(borderTexture, 1);
+            var borderTexture = VeneerTextures.CreateRoundedRectTexture(
+                32,
+                Color.clear,
+                Color.white,
+                cornerRadius,
+                1
+            );
+            _borderImage.sprite = VeneerTextures.CreateRoundedSprite(borderTexture, cornerRadius);
             _borderImage.type = Image.Type.Sliced;
+            _borderImage.color = VeneerColors.Border;
             _borderImage.raycastTarget = false;
 
             // Value text

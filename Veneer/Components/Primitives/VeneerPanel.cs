@@ -110,13 +110,22 @@ namespace Veneer.Components.Primitives
         {
             SetSize(width, height);
 
-            // Background
+            int cornerRadius = (int)VeneerDimensions.CornerRadiusSmall;
+
+            // Background with rounded corners
             _backgroundImage = gameObject.AddComponent<Image>();
-            _backgroundImage.sprite = VeneerTextures.CreatePanelSprite();
+            var bgTexture = VeneerTextures.CreateRoundedRectTexture(
+                32,
+                Color.white,
+                Color.clear,
+                cornerRadius,
+                0
+            );
+            _backgroundImage.sprite = VeneerTextures.CreateRoundedSprite(bgTexture, cornerRadius);
             _backgroundImage.type = Image.Type.Sliced;
             _backgroundImage.color = VeneerColors.Background;
 
-            // Border overlay with custom thickness
+            // Border overlay with custom thickness and rounded corners
             var borderGo = CreateUIObject("Border", transform);
             var borderRect = borderGo.GetComponent<RectTransform>();
             borderRect.anchorMin = Vector2.zero;
@@ -125,9 +134,16 @@ namespace Veneer.Components.Primitives
             borderRect.offsetMax = Vector2.zero;
 
             _borderImage = borderGo.AddComponent<Image>();
-            var borderTexture = VeneerTextures.CreateSlicedBorderTexture(16, borderColor, Color.clear, borderWidth);
-            _borderImage.sprite = VeneerTextures.CreateSlicedSprite(borderTexture, borderWidth);
+            var borderTexture = VeneerTextures.CreateRoundedRectTexture(
+                32,
+                Color.clear,
+                Color.white,
+                cornerRadius,
+                borderWidth
+            );
+            _borderImage.sprite = VeneerTextures.CreateRoundedSprite(borderTexture, cornerRadius);
             _borderImage.type = Image.Type.Sliced;
+            _borderImage.color = borderColor;
             _borderImage.raycastTarget = false;
         }
 
@@ -135,13 +151,22 @@ namespace Veneer.Components.Primitives
         {
             SetSize(width, height);
 
-            // Background
+            int cornerRadius = (int)VeneerDimensions.CornerRadiusSmall;
+
+            // Background with rounded corners
             _backgroundImage = gameObject.AddComponent<Image>();
-            _backgroundImage.sprite = VeneerTextures.CreatePanelSprite();
+            var bgTexture = VeneerTextures.CreateRoundedRectTexture(
+                32,
+                Color.white,
+                Color.clear,
+                cornerRadius,
+                0
+            );
+            _backgroundImage.sprite = VeneerTextures.CreateRoundedSprite(bgTexture, cornerRadius);
             _backgroundImage.type = Image.Type.Sliced;
             _backgroundImage.color = VeneerColors.Background;
 
-            // Border overlay
+            // Border overlay with rounded corners
             var borderGo = CreateUIObject("Border", transform);
             var borderRect = borderGo.GetComponent<RectTransform>();
             borderRect.anchorMin = Vector2.zero;
@@ -150,9 +175,16 @@ namespace Veneer.Components.Primitives
             borderRect.offsetMax = Vector2.zero;
 
             _borderImage = borderGo.AddComponent<Image>();
-            var borderTexture = VeneerTextures.CreateSlicedBorderTexture(16, VeneerColors.Border, Color.clear, 1);
-            _borderImage.sprite = VeneerTextures.CreateSlicedSprite(borderTexture, 1);
+            var borderTexture = VeneerTextures.CreateRoundedRectTexture(
+                32,
+                Color.clear,
+                Color.white,
+                cornerRadius,
+                1
+            );
+            _borderImage.sprite = VeneerTextures.CreateRoundedSprite(borderTexture, cornerRadius);
             _borderImage.type = Image.Type.Sliced;
+            _borderImage.color = VeneerColors.Border;
             _borderImage.raycastTarget = false;
         }
 

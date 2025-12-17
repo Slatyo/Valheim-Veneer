@@ -152,13 +152,22 @@ namespace Veneer.Components.Specialized
         {
             SetSize(size, size);
 
-            // Background
+            int cornerRadius = (int)VeneerDimensions.CornerRadiusSmall;
+
+            // Background with rounded corners
             _backgroundImage = gameObject.AddComponent<Image>();
-            _backgroundImage.sprite = VeneerTextures.CreateSlotSprite();
+            var bgTexture = VeneerTextures.CreateRoundedRectTexture(
+                32,
+                Color.white,
+                Color.clear,
+                cornerRadius,
+                0
+            );
+            _backgroundImage.sprite = VeneerTextures.CreateRoundedSprite(bgTexture, cornerRadius);
             _backgroundImage.type = Image.Type.Sliced;
             _backgroundImage.color = VeneerColors.SlotEmpty;
 
-            // Border - more visible for slot distinction
+            // Border with rounded corners
             var borderGo = CreateUIObject("Border", transform);
             var borderRect = borderGo.GetComponent<RectTransform>();
             borderRect.anchorMin = Vector2.zero;
@@ -167,9 +176,16 @@ namespace Veneer.Components.Specialized
             borderRect.offsetMax = Vector2.zero;
 
             _borderImage = borderGo.AddComponent<Image>();
-            var borderTex = VeneerTextures.CreateSlicedBorderTexture(16, VeneerColors.SlotBorder, Color.clear, 2);
-            _borderImage.sprite = VeneerTextures.CreateSlicedSprite(borderTex, 2);
+            var borderTexture = VeneerTextures.CreateRoundedRectTexture(
+                32,
+                Color.clear,
+                Color.white,
+                cornerRadius,
+                2
+            );
+            _borderImage.sprite = VeneerTextures.CreateRoundedSprite(borderTexture, cornerRadius);
             _borderImage.type = Image.Type.Sliced;
+            _borderImage.color = VeneerColors.SlotBorder;
             _borderImage.raycastTarget = false;
 
             // Item icon

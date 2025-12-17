@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -9,7 +10,7 @@ using Veneer.Theme;
 namespace Veneer.Components.Primitives
 {
     /// <summary>
-    /// Styled button component.
+    /// Styled button component with rounded corners and smooth transitions.
     /// </summary>
     public class VeneerButton : VeneerElement, IPointerEnterHandler, IPointerExitHandler, IPointerDownHandler, IPointerUpHandler
     {
@@ -20,6 +21,11 @@ namespace Veneer.Components.Primitives
         private ButtonStyle _style = ButtonStyle.Default;
         private bool _isHovered;
         private bool _isPressed;
+
+        // Smooth transition support
+        private Coroutine _colorTransition;
+        private Color _targetBgColor;
+        private Color _targetBorderColor;
 
         /// <summary>
         /// Button label text.
@@ -110,13 +116,22 @@ namespace Veneer.Components.Primitives
         {
             SetSize(VeneerDimensions.ButtonWidthMin, VeneerDimensions.ButtonHeight);
 
-            // Background
+            int cornerRadius = (int)VeneerDimensions.CornerRadiusSmall;
+
+            // Background with rounded corners
             _backgroundImage = gameObject.AddComponent<Image>();
-            _backgroundImage.sprite = VeneerTextures.CreateButtonSprite();
+            var bgTexture = VeneerTextures.CreateRoundedRectTexture(
+                32,
+                Color.white,
+                Color.clear,
+                cornerRadius,
+                0
+            );
+            _backgroundImage.sprite = VeneerTextures.CreateRoundedSprite(bgTexture, cornerRadius);
             _backgroundImage.type = Image.Type.Sliced;
             _backgroundImage.color = VeneerColors.ButtonNormal;
 
-            // Border
+            // Border with rounded corners
             var borderGo = CreateUIObject("Border", transform);
             var borderRect = borderGo.GetComponent<RectTransform>();
             borderRect.anchorMin = Vector2.zero;
@@ -125,9 +140,16 @@ namespace Veneer.Components.Primitives
             borderRect.offsetMax = Vector2.zero;
 
             _borderImage = borderGo.AddComponent<Image>();
-            var borderTexture = VeneerTextures.CreateSlicedBorderTexture(16, VeneerColors.Border, Color.clear, 1);
-            _borderImage.sprite = VeneerTextures.CreateSlicedSprite(borderTexture, 1);
+            var borderTexture = VeneerTextures.CreateRoundedRectTexture(
+                32,
+                Color.clear,
+                Color.white,
+                cornerRadius,
+                1
+            );
+            _borderImage.sprite = VeneerTextures.CreateRoundedSprite(borderTexture, cornerRadius);
             _borderImage.type = Image.Type.Sliced;
+            _borderImage.color = VeneerColors.Border;
             _borderImage.raycastTarget = false;
 
             // Label
@@ -155,6 +177,10 @@ namespace Veneer.Components.Primitives
 
             if (onClick != null)
                 OnClick += onClick;
+
+            // Initialize target colors
+            _targetBgColor = VeneerColors.ButtonNormal;
+            _targetBorderColor = VeneerColors.Border;
 
             UpdateVisuals();
         }
@@ -224,9 +250,51 @@ namespace Veneer.Components.Primitives
                 borderColor = GetBorderColor(false);
             }
 
-            _backgroundImage.color = bgColor;
-            _borderImage.color = borderColor;
+            // Smooth color transition (only if active, otherwise apply immediately)
+            _targetBgColor = bgColor;
+            _targetBorderColor = borderColor;
+
+            if (_colorTransition != null)
+            {
+                StopCoroutine(_colorTransition);
+                _colorTransition = null;
+            }
+
+            if (gameObject.activeInHierarchy)
+            {
+                _colorTransition = StartCoroutine(TransitionColors(VeneerTheme.ButtonHoverDuration));
+            }
+            else
+            {
+                // Apply immediately if inactive
+                _backgroundImage.color = bgColor;
+                _borderImage.color = borderColor;
+            }
+
             _label.color = interactable ? GetTextColor() : textColor;
+        }
+
+        private IEnumerator TransitionColors(float duration)
+        {
+            Color startBg = _backgroundImage.color;
+            Color startBorder = _borderImage.color;
+            float elapsed = 0f;
+
+            while (elapsed < duration)
+            {
+                elapsed += Time.unscaledDeltaTime;
+                float t = Mathf.Clamp01(elapsed / duration);
+                float eased = VeneerAnimation.SmoothStep(t);
+
+                _backgroundImage.color = Color.Lerp(startBg, _targetBgColor, eased);
+                _borderImage.color = Color.Lerp(startBorder, _targetBorderColor, eased);
+
+                yield return null;
+            }
+
+            _backgroundImage.color = _targetBgColor;
+            _borderImage.color = _targetBorderColor;
+            _colorTransition = null;
         }
 
         private Color GetNormalColor()
@@ -237,7 +305,7 @@ namespace Veneer.Components.Primitives
                 ButtonStyle.Danger => VeneerColors.Darken(VeneerColors.Error, 0.3f),
                 ButtonStyle.Ghost => Color.clear,
                 ButtonStyle.Tab => VeneerColors.BackgroundDark,
-                ButtonStyle.TabActive => VeneerColors.BackgroundDark, // Same as Tab, accent shown via border
+                ButtonStyle.TabActive => VeneerColors.BackgroundLight, // Slightly lighter to indicate active
                 _ => VeneerColors.ButtonNormal
             };
         }
@@ -250,7 +318,7 @@ namespace Veneer.Components.Primitives
                 ButtonStyle.Danger => VeneerColors.Error,
                 ButtonStyle.Ghost => VeneerColors.WithAlpha(VeneerColors.BackgroundLight, 0.5f),
                 ButtonStyle.Tab => VeneerColors.BackgroundLight,
-                ButtonStyle.TabActive => VeneerColors.BackgroundLight,
+                ButtonStyle.TabActive => VeneerColors.ButtonHover,
                 _ => VeneerColors.ButtonHover
             };
         }
@@ -277,7 +345,8 @@ namespace Veneer.Components.Primitives
                 return highlighted ? VeneerColors.Border : VeneerColors.BorderDark;
 
             if (_style == ButtonStyle.TabActive)
-                return VeneerColors.Accent; // Always show gold accent border for active tab
+                // Subtle gold tint border - brighter on hover
+                return highlighted ? VeneerColors.AccentSubtle : VeneerColors.AccentMuted;
 
             return highlighted ? VeneerColors.BorderLight : VeneerColors.Border;
         }
