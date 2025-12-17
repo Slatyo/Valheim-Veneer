@@ -95,7 +95,7 @@ namespace Veneer.Vanilla.Replacements
             float totalWidth = contentWidth + padding * 2;
             float totalHeight = VeneerDimensions.WindowTitleHeight + LABEL_HEIGHT + innerSpacing + bagHeight + spacing + LABEL_HEIGHT + innerSpacing + quickHeight + spacing + WEIGHT_HEIGHT + padding * 2;
 
-            // Create main inventory frame using VeneerFrame
+            // Create main inventory frame using VeneerFrame with Inventory tint
             _inventoryFrame = VeneerFrame.Create(parent, new FrameConfig
             {
                 Id = ElementIdInventory,
@@ -108,7 +108,10 @@ namespace Veneer.Vanilla.Replacements
                 IsDraggable = true,
                 SavePosition = true,
                 Anchor = AnchorPreset.MiddleRight,
-                Offset = new Vector2(-20, 0)
+                Offset = new Vector2(-20, 0),
+                Tint = WindowTint.Inventory,
+                HasGlassEffect = true,
+                AnimateShowHide = true
             });
 
             _inventoryFrame.OnCloseClicked += OnInventoryWindowClosed;
@@ -122,9 +125,10 @@ namespace Veneer.Vanilla.Replacements
             // Register anchor
             VeneerAnchor.Register(ElementIdInventory, ScreenAnchor.Right, new Vector2(-20, 0));
 
-            // Start hidden
+            // Start hidden - deactivate wrapper for VeneerWindowManager visibility tracking
             RegisterWithManager();
             _inventoryFrame.Hide();
+            gameObject.SetActive(false);
         }
 
         private void BuildInventoryContent(RectTransform content, float contentWidth, float bagWidth, float bagHeight, float quickWidth, float quickHeight, float spacing, float innerSpacing)
@@ -223,7 +227,7 @@ namespace Veneer.Vanilla.Replacements
             // No CONTENTS label needed - header shows container name
             float totalHeight = VeneerDimensions.WindowTitleHeight + gridHeight + padding * 2;
 
-            // Create container frame using VeneerFrame
+            // Create container frame using VeneerFrame with Container tint
             _containerFrame = VeneerFrame.Create(parent, new FrameConfig
             {
                 Id = ElementIdContainer,
@@ -236,7 +240,10 @@ namespace Veneer.Vanilla.Replacements
                 IsDraggable = true,
                 SavePosition = true,
                 Anchor = AnchorPreset.MiddleLeft,
-                Offset = new Vector2(20, 0)
+                Offset = new Vector2(20, 0),
+                Tint = WindowTint.Container,
+                HasGlassEffect = true,
+                AnimateShowHide = true
             });
 
             _containerFrame.OnCloseClicked += OnContainerWindowClosed;

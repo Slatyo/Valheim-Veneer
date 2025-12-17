@@ -38,11 +38,11 @@ namespace Veneer.Vanilla.Replacements
         {
             var go = CreateUIObject("VeneerLargeMapFrame", parent);
             var frame = go.AddComponent<VeneerLargeMapFrame>();
-            frame.Initialize();
+            frame.Initialize(parent);
             return frame;
         }
 
-        private void Initialize()
+        private void Initialize(Transform parent)
         {
             ElementId = ElementIdLargeMap;
             IsMoveable = true;
@@ -55,14 +55,10 @@ namespace Veneer.Vanilla.Replacements
             float height = 850f;
             float padding = 4f;
 
-            SetSize(width, height);
-            AnchorTo(AnchorPreset.MiddleCenter);
-
-            // Create VeneerFrame with header, close button, and dragging
-            // Note: No Id on child frame - the wrapper (this panel) handles positioning via VeneerMover
-            _frame = VeneerFrame.Create(transform, new FrameConfig
+            // Create VeneerFrame on parent with its own Id for positioning
+            _frame = VeneerFrame.Create(parent, new FrameConfig
             {
-                // Id intentionally not set - wrapper handles edit mode positioning
+                Id = ElementIdLargeMap,
                 Name = "LargeMapFrameInner",
                 Title = "World Map",
                 Width = width,
@@ -70,20 +66,12 @@ namespace Veneer.Vanilla.Replacements
                 HasHeader = true,
                 HasCloseButton = true,
                 IsDraggable = true,
-                SavePosition = false,
-                Anchor = AnchorPreset.MiddleCenter
+                SavePosition = true,
+                Anchor = AnchorPreset.MiddleCenter,
+                Tint = WindowTint.Map,
+                HasGlassEffect = true,
+                AnimateShowHide = true
             });
-
-            // Add VeneerMover to THIS wrapper panel (not the child frame)
-            // VeneerMover automatically registers with VeneerAnchor for position persistence
-            var mover = gameObject.AddComponent<VeneerMover>();
-            mover.ElementId = ElementId;
-
-            // Fill parent
-            _frame.RectTransform.anchorMin = Vector2.zero;
-            _frame.RectTransform.anchorMax = Vector2.one;
-            _frame.RectTransform.offsetMin = Vector2.zero;
-            _frame.RectTransform.offsetMax = Vector2.zero;
 
             // Connect close event to vanilla map close
             _frame.OnCloseClicked += OnCloseClicked;
@@ -104,13 +92,17 @@ namespace Veneer.Vanilla.Replacements
             _mapContainerRect.offsetMin = new Vector2(padding, padding);
             _mapContainerRect.offsetMax = new Vector2(-padding, -padding);
 
-            // Add resizer
-            var resizer = gameObject.AddComponent<VeneerResizer>();
+            // Add resizer to frame
+            var resizer = _frame.gameObject.AddComponent<VeneerResizer>();
             resizer.MinSize = new Vector2(500, 450);
             resizer.MaxSize = new Vector2(1600, 1200);
 
-            // Start hidden - must register BEFORE SetActive(false) since Start() won't be called
+            // Register anchor for position persistence
+            VeneerAnchor.Register(ElementIdLargeMap, ScreenAnchor.Center, Vector2.zero);
+
+            // Start hidden - deactivate wrapper for VeneerWindowManager visibility tracking
             RegisterWithManager();
+            _frame.Hide();
             gameObject.SetActive(false);
 
             Plugin.Log.LogDebug("VeneerLargeMapFrame: Initialized");
@@ -202,16 +194,18 @@ namespace Veneer.Vanilla.Replacements
                 _vanillaLargeMapRect.gameObject.SetActive(true);
             }
 
-            base.Show(); // Fire OnShow event and set visibility
+            _frame.Show();
+            base.Show();
         }
 
         public override void Hide()
         {
-            base.Hide(); // Fire OnHide event and set visibility
+            _frame.Hide();
+            base.Hide();
             UnwrapVanillaMap();
         }
 
-        public bool IsShowing => gameObject.activeSelf;
+        public bool IsShowing => _frame != null && _frame.IsVisible;
 
         protected override void OnDestroy()
         {

@@ -32,11 +32,11 @@ namespace Veneer.Vanilla.Replacements
         {
             var go = CreateUIObject("VeneerSkillsPanel", parent);
             var panel = go.AddComponent<VeneerSkillsPanel>();
-            panel.Initialize();
+            panel.Initialize(parent);
             return panel;
         }
 
-        private void Initialize()
+        private void Initialize(Transform parent)
         {
             ElementId = ElementIdSkills;
             IsMoveable = true;
@@ -47,15 +47,10 @@ namespace Veneer.Vanilla.Replacements
             float width = 500f;
             float height = 520f;
 
-            // Make this container fill the frame
-            SetSize(width, height);
-            AnchorTo(AnchorPreset.MiddleCenter);
-
-            // Create VeneerFrame with header, close button, and dragging
-            // Note: No Id on child frame - the wrapper (this panel) handles positioning via VeneerMover
-            _frame = VeneerFrame.Create(transform, new FrameConfig
+            // Create VeneerFrame on parent with its own Id for positioning
+            _frame = VeneerFrame.Create(parent, new FrameConfig
             {
-                // Id intentionally not set - wrapper handles edit mode positioning
+                Id = ElementIdSkills,
                 Name = "SkillsFrame",
                 Title = "Skills",
                 Width = width,
@@ -63,20 +58,12 @@ namespace Veneer.Vanilla.Replacements
                 HasHeader = true,
                 HasCloseButton = true,
                 IsDraggable = true,
-                SavePosition = false,
-                Anchor = AnchorPreset.MiddleCenter
+                SavePosition = true,
+                Anchor = AnchorPreset.MiddleCenter,
+                Tint = WindowTint.Skills,
+                HasGlassEffect = true,
+                AnimateShowHide = true
             });
-
-            // Add VeneerMover to THIS wrapper panel (not the child frame)
-            // VeneerMover automatically registers with VeneerAnchor for position persistence
-            var mover = gameObject.AddComponent<VeneerMover>();
-            mover.ElementId = ElementId;
-
-            // Fill parent
-            _frame.RectTransform.anchorMin = Vector2.zero;
-            _frame.RectTransform.anchorMax = Vector2.one;
-            _frame.RectTransform.offsetMin = Vector2.zero;
-            _frame.RectTransform.offsetMax = Vector2.zero;
 
             // Connect close event
             _frame.OnCloseClicked += Hide;
@@ -134,13 +121,17 @@ namespace Veneer.Vanilla.Replacements
 
             _scrollRect.content = _skillsContent;
 
-            // Add resizer
-            var resizer = gameObject.AddComponent<VeneerResizer>();
+            // Add resizer to frame
+            var resizer = _frame.gameObject.AddComponent<VeneerResizer>();
             resizer.MinSize = new Vector2(350, 350);
             resizer.MaxSize = new Vector2(800, 900);
 
-            // Start hidden - must register BEFORE SetActive(false) since Start() won't be called
+            // Register anchor for position persistence
+            VeneerAnchor.Register(ElementIdSkills, ScreenAnchor.Center, Vector2.zero);
+
+            // Start hidden - deactivate wrapper for VeneerWindowManager visibility tracking
             RegisterWithManager();
+            _frame.Hide();
             gameObject.SetActive(false);
         }
 
@@ -153,7 +144,8 @@ namespace Veneer.Vanilla.Replacements
             if (_player == null) return;
 
             UpdateSkills();
-            base.Show(); // Fire OnShow event and set visibility
+            _frame.Show();
+            base.Show();
         }
 
         /// <summary>
@@ -161,7 +153,8 @@ namespace Veneer.Vanilla.Replacements
         /// </summary>
         public override void Hide()
         {
-            base.Hide(); // Fire OnHide event and set visibility
+            _frame.Hide();
+            base.Hide();
         }
 
         private void UpdateSkills()

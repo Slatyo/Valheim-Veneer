@@ -67,11 +67,11 @@ namespace Veneer.Vanilla.Replacements
         {
             var go = CreateUIObject("VeneerCraftingPanel", parent);
             var panel = go.AddComponent<VeneerCraftingPanel>();
-            panel.Initialize();
+            panel.Initialize(parent);
             return panel;
         }
 
-        private void Initialize()
+        private void Initialize(Transform parent)
         {
             ElementId = ElementIdCrafting;
             IsMoveable = true;
@@ -82,14 +82,10 @@ namespace Veneer.Vanilla.Replacements
             float width = 650f;
             float height = 650f;
 
-            SetSize(width, height);
-            AnchorTo(AnchorPreset.MiddleCenter);
-
-            // Create VeneerFrame
-            // Note: No Id on child frame - the wrapper (this panel) handles positioning via VeneerMover
-            _frame = VeneerFrame.Create(transform, new FrameConfig
+            // Create VeneerFrame on parent with its own Id for positioning
+            _frame = VeneerFrame.Create(parent, new FrameConfig
             {
-                // Id intentionally not set - wrapper handles edit mode positioning
+                Id = ElementIdCrafting,
                 Name = "CraftingFrame",
                 Title = "Crafting",
                 Width = width,
@@ -97,19 +93,12 @@ namespace Veneer.Vanilla.Replacements
                 HasHeader = true,
                 HasCloseButton = true,
                 IsDraggable = true,
-                SavePosition = false,
-                Anchor = AnchorPreset.MiddleCenter
+                SavePosition = true,
+                Anchor = AnchorPreset.MiddleCenter,
+                Tint = WindowTint.Crafting,
+                HasGlassEffect = true,
+                AnimateShowHide = true
             });
-
-            // Add VeneerMover to THIS wrapper panel (not the child frame)
-            var mover = gameObject.AddComponent<VeneerMover>();
-            mover.ElementId = ElementId;
-
-            // Fill parent
-            _frame.RectTransform.anchorMin = Vector2.zero;
-            _frame.RectTransform.anchorMax = Vector2.one;
-            _frame.RectTransform.offsetMin = Vector2.zero;
-            _frame.RectTransform.offsetMax = Vector2.zero;
 
             _frame.OnCloseClicked += Hide;
 
@@ -131,13 +120,17 @@ namespace Veneer.Vanilla.Replacements
             CreateRecipeGrid(content, topBarHeight + tabBarHeight + spacing * 2, previewHeight + spacing);
             CreatePreviewPanel(content, previewHeight);
 
-            // Add resizer
-            var resizer = gameObject.AddComponent<VeneerResizer>();
+            // Add resizer to frame
+            var resizer = _frame.gameObject.AddComponent<VeneerResizer>();
             resizer.MinSize = new Vector2(500, 500);
             resizer.MaxSize = new Vector2(1000, 900);
 
-            // Register and start hidden
+            // Register anchor for position persistence
+            VeneerAnchor.Register(ElementIdCrafting, ScreenAnchor.Center, Vector2.zero);
+
+            // Start hidden - deactivate wrapper for VeneerWindowManager visibility tracking
             RegisterWithManager();
+            _frame.Hide();
             gameObject.SetActive(false);
         }
 
@@ -468,6 +461,7 @@ namespace Veneer.Vanilla.Replacements
             _currentStation = _player.GetCurrentCraftingStation();
             UpdateTitle();
             UpdateRecipeList();
+            _frame.Show();
             base.Show();
         }
 
@@ -479,11 +473,13 @@ namespace Veneer.Vanilla.Replacements
             _currentStation = station;
             UpdateTitle();
             UpdateRecipeList();
+            _frame.Show();
             base.Show();
         }
 
         public override void Hide()
         {
+            _frame.Hide();
             base.Hide();
         }
 
