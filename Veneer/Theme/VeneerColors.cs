@@ -31,6 +31,8 @@ namespace Veneer.Theme
         public static readonly Color AccentHover = new Color(0.88f, 0.71f, 0.53f, 1f);         // Lighter gold
         public static readonly Color AccentPressed = new Color(0.68f, 0.51f, 0.33f, 1f);       // Darker gold
         public static readonly Color AccentDisabled = new Color(0.5f, 0.4f, 0.3f, 0.5f);       // Faded gold
+        public static readonly Color AccentSubtle = new Color(0.55f, 0.45f, 0.35f, 0.8f);      // Muted, semi-transparent gold
+        public static readonly Color AccentMuted = new Color(0.45f, 0.38f, 0.30f, 1f);         // Dark gold for subtle accents
 
         // Status bars - Valheim-appropriate colors
         public static readonly Color Health = new Color(0.77f, 0.12f, 0.23f, 1f);              // #c41f3b (red)
@@ -67,6 +69,23 @@ namespace Veneer.Theme
         public static readonly Color SlotHover = new Color(0.18f, 0.18f, 0.18f, 1f);
         public static readonly Color SlotSelected = new Color(0.25f, 0.25f, 0.25f, 1f);
         public static readonly Color SlotBorder = new Color(0.35f, 0.35f, 0.35f, 1f);           // More visible slot borders
+
+        // Glass effect colors
+        public static readonly Color GlassFrost = new Color(1f, 1f, 1f, 0.08f);                 // Subtle white frost overlay
+        public static readonly Color GlassHighlight = new Color(1f, 1f, 1f, 0.05f);             // Top edge highlight
+        public static readonly Color GlassShadow = new Color(0f, 0f, 0f, 0.3f);                 // Bottom edge shadow
+        public static readonly Color GlassReflection = new Color(1f, 1f, 1f, 0.03f);            // Subtle reflection
+
+        // Interactive glow colors (used for hover/focus states)
+        public static readonly Color GlowDefault = new Color(0.78f, 0.61f, 0.43f, 0.3f);        // Gold glow
+        public static readonly Color GlowBlue = new Color(0.43f, 0.61f, 0.78f, 0.4f);           // Blue glow (skills)
+        public static readonly Color GlowGreen = new Color(0.43f, 0.78f, 0.61f, 0.4f);          // Green glow (crafting)
+        public static readonly Color GlowRed = new Color(0.78f, 0.43f, 0.43f, 0.4f);            // Red glow (danger/boss)
+        public static readonly Color GlowAmber = new Color(0.78f, 0.61f, 0.43f, 0.4f);          // Amber glow (inventory)
+
+        // Card/panel hover states
+        public static readonly Color CardHover = new Color(0.15f, 0.15f, 0.15f, 0.98f);
+        public static readonly Color CardSelected = new Color(0.12f, 0.11f, 0.09f, 0.98f);      // Slight warm tint when selected
 
         /// <summary>
         /// Gets the color for a given rarity tier (0-6).
