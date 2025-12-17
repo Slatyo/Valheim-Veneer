@@ -13,11 +13,14 @@ namespace Veneer.Components.Base
     /// Styled frame container with border and background.
     /// Base container for most Veneer UI elements.
     /// Supports optional header with title, close button, and dragging.
+    /// Features glass effect with window-specific tints.
     /// </summary>
     public class VeneerFrame : VeneerElement, IBeginDragHandler, IDragHandler, IEndDragHandler
     {
         private Image _backgroundImage;
         private Image _borderImage;
+        private Image _frostOverlay;
+        private Image _highlightStrip;
         private RectTransform _contentArea;
         private RectTransform _headerRect;
         private Text _titleText;
@@ -32,7 +35,9 @@ namespace Veneer.Components.Base
         private bool _hasHeader;
         private bool _hasCloseButton;
         private bool _isDraggable;
+        private bool _hasGlassEffect;
         private float _headerHeight = VeneerDimensions.WindowTitleHeight;
+        private WindowTint _windowTint = WindowTint.Default;
 
         /// <summary>
         /// The content area RectTransform (inside padding, below header if present).
@@ -111,6 +116,38 @@ namespace Veneer.Components.Base
         }
 
         /// <summary>
+        /// The window tint preset for this frame.
+        /// </summary>
+        public WindowTint Tint
+        {
+            get => _windowTint;
+            set
+            {
+                if (_windowTint != value)
+                {
+                    _windowTint = value;
+                    ApplyWindowTint();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Whether glass effect (frost overlay) is enabled.
+        /// </summary>
+        public bool HasGlassEffect
+        {
+            get => _hasGlassEffect;
+            set
+            {
+                if (_hasGlassEffect != value)
+                {
+                    _hasGlassEffect = value;
+                    UpdateGlassEffect();
+                }
+            }
+        }
+
+        /// <summary>
         /// Event fired when close button is clicked.
         /// </summary>
         public event Action OnCloseClicked;
@@ -152,6 +189,13 @@ namespace Veneer.Components.Base
             _hasCloseButton = config.HasCloseButton;
             _isDraggable = config.IsDraggable;
             _headerHeight = config.HeaderHeight > 0 ? config.HeaderHeight : VeneerDimensions.WindowTitleHeight;
+            _windowTint = config.Tint;
+            _hasGlassEffect = config.HasGlassEffect;
+
+            // Enable animations by default for frames
+            AnimateShowHide = config.AnimateShowHide;
+            ShowAnimationType = AnimationType.FadeScale;
+            HideAnimationType = AnimationType.FadeScale;
 
             // Cache canvas reference
             _canvas = GetComponentInParent<Canvas>();
@@ -164,6 +208,12 @@ namespace Veneer.Components.Base
 
             CreateBackground();
             CreateBorder();
+
+            if (_hasGlassEffect)
+            {
+                CreateFrostOverlay();
+                CreateHighlightStrip();
+            }
 
             if (_hasHeader)
             {
@@ -228,9 +278,21 @@ namespace Veneer.Components.Base
         private void CreateBackground()
         {
             _backgroundImage = gameObject.AddComponent<Image>();
-            _backgroundImage.sprite = VeneerTextures.CreatePanelSprite();
+
+            // Use rounded panel sprite with window tint
+            int cornerRadius = (int)VeneerDimensions.CornerRadius;
+            var bgTexture = VeneerTextures.CreateRoundedRectTexture(
+                32,
+                Color.white,  // Use white so color tinting works properly
+                Color.clear,
+                cornerRadius,
+                0
+            );
+            _backgroundImage.sprite = VeneerTextures.CreateRoundedSprite(bgTexture, cornerRadius);
             _backgroundImage.type = Image.Type.Sliced;
-            _backgroundImage.color = VeneerColors.Background;
+
+            // Apply window tint color
+            _backgroundImage.color = VeneerTheme.GetWindowTint(_windowTint);
         }
 
         private void CreateBorder()
@@ -244,16 +306,106 @@ namespace Veneer.Components.Base
 
             _borderImage = borderGo.AddComponent<Image>();
 
-            var borderTexture = VeneerTextures.CreateSlicedBorderTexture(
-                16,
-                VeneerColors.Border,
-                Color.clear,
+            // Use rounded border that matches background corners
+            int cornerRadius = (int)VeneerDimensions.CornerRadius;
+            var borderTexture = VeneerTextures.CreateRoundedRectTexture(
+                32,
+                Color.clear,  // Transparent fill
+                Color.white,  // White border so tinting works
+                cornerRadius,
                 1
             );
-            _borderImage.sprite = VeneerTextures.CreateSlicedSprite(borderTexture, 1);
+            _borderImage.sprite = VeneerTextures.CreateRoundedSprite(borderTexture, cornerRadius);
             _borderImage.type = Image.Type.Sliced;
             _borderImage.color = VeneerColors.Border;
             _borderImage.raycastTarget = false;
+        }
+
+        private void CreateFrostOverlay()
+        {
+            var frostGo = CreateUIObject("FrostOverlay", transform);
+            var frostRect = frostGo.GetComponent<RectTransform>();
+            frostRect.anchorMin = Vector2.zero;
+            frostRect.anchorMax = Vector2.one;
+            frostRect.offsetMin = new Vector2(1, 1);  // Inset by 1px to not overlap border
+            frostRect.offsetMax = new Vector2(-1, -1);
+
+            _frostOverlay = frostGo.AddComponent<Image>();
+            _frostOverlay.sprite = VeneerTextures.CreateFrostSprite(64, _windowTint);
+            _frostOverlay.type = Image.Type.Tiled;
+            _frostOverlay.color = VeneerTheme.GetFrostColor(_windowTint);
+            _frostOverlay.raycastTarget = false;
+
+            // Move frost overlay behind border but above background
+            frostGo.transform.SetSiblingIndex(1);
+        }
+
+        private void CreateHighlightStrip()
+        {
+            // Create a subtle highlight strip at the top edge to simulate glass light reflection
+            var highlightGo = CreateUIObject("HighlightStrip", transform);
+            var highlightRect = highlightGo.GetComponent<RectTransform>();
+            highlightRect.anchorMin = new Vector2(0, 1);
+            highlightRect.anchorMax = Vector2.one;
+            highlightRect.pivot = new Vector2(0.5f, 1);
+            highlightRect.anchoredPosition = new Vector2(0, -1);  // 1px inside border
+            highlightRect.sizeDelta = new Vector2(-4, VeneerTheme.GlassHighlightHeight);  // 2px inset on sides
+
+            _highlightStrip = highlightGo.AddComponent<Image>();
+
+            // Create gradient texture (bright at top, fading to transparent)
+            var gradientTex = VeneerTextures.CreateVerticalGradient(
+                8,
+                new Color(1f, 1f, 1f, 0f),  // Bottom: transparent
+                new Color(1f, 1f, 1f, VeneerTheme.GlassHighlightOpacity)  // Top: subtle white
+            );
+            _highlightStrip.sprite = VeneerTextures.CreateSprite(gradientTex);
+            _highlightStrip.raycastTarget = false;
+
+            // Position above frost overlay but below header
+            highlightGo.transform.SetSiblingIndex(2);
+        }
+
+        private void ApplyWindowTint()
+        {
+            if (_backgroundImage != null)
+            {
+                _backgroundImage.color = VeneerTheme.GetWindowTint(_windowTint);
+            }
+
+            if (_frostOverlay != null)
+            {
+                _frostOverlay.color = VeneerTheme.GetFrostColor(_windowTint);
+                _frostOverlay.sprite = VeneerTextures.CreateFrostSprite(64, _windowTint);
+            }
+        }
+
+        private void UpdateGlassEffect()
+        {
+            if (_hasGlassEffect)
+            {
+                if (_frostOverlay == null)
+                {
+                    CreateFrostOverlay();
+                }
+                if (_highlightStrip == null)
+                {
+                    CreateHighlightStrip();
+                }
+            }
+            else
+            {
+                if (_frostOverlay != null)
+                {
+                    Destroy(_frostOverlay.gameObject);
+                    _frostOverlay = null;
+                }
+                if (_highlightStrip != null)
+                {
+                    Destroy(_highlightStrip.gameObject);
+                    _highlightStrip = null;
+                }
+            }
         }
 
         private void CreateHeader(string title, bool closeable)
@@ -690,5 +842,20 @@ namespace Veneer.Components.Base
         /// Optional maximum size for resizing. If null, defaults to 200% of initial size (max 800x600).
         /// </summary>
         public Vector2? MaxSize { get; set; }
+
+        /// <summary>
+        /// Window tint preset for glass effect coloring.
+        /// </summary>
+        public WindowTint Tint { get; set; } = WindowTint.Default;
+
+        /// <summary>
+        /// Whether to enable the glass effect (frost overlay).
+        /// </summary>
+        public bool HasGlassEffect { get; set; } = true;
+
+        /// <summary>
+        /// Whether to animate show/hide transitions.
+        /// </summary>
+        public bool AnimateShowHide { get; set; } = true;
     }
 }
