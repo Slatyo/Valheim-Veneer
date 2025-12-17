@@ -1,6 +1,7 @@
 using UnityEngine;
 using Veneer.Components.Specialized;
 using Veneer.Core;
+using Veneer.Extensions;
 
 namespace Veneer.Vanilla.Replacements
 {
@@ -25,6 +26,13 @@ namespace Veneer.Vanilla.Replacements
         // References to vanilla HUD for hiding
         private Hud _vanillaHud;
         private bool _initialized;
+
+        // Layout containers for HUD extensions
+        private Transform _topLeftContainer;
+        private Transform _topRightContainer;
+        private Transform _bottomLeftContainer;
+        private Transform _bottomRightContainer;
+        private Transform _centerContainer;
 
         /// <summary>
         /// Player unit frame component.
@@ -136,6 +144,86 @@ namespace Veneer.Vanilla.Replacements
 
             _initialized = true;
             Plugin.Log.LogInfo("Veneer HUD elements created");
+
+            // Create layout containers for HUD extensions
+            CreateLayoutContainers();
+
+            // Notify HUD extensions that HUD is ready
+            NotifyExtensions();
+        }
+
+        private void CreateLayoutContainers()
+        {
+            // Create containers for different screen regions
+            // Extensions can parent their elements to these containers
+
+            // Bottom-left container (where player frame typically goes)
+            var bottomLeft = new GameObject("BottomLeftContainer");
+            var blRect = bottomLeft.AddComponent<RectTransform>();
+            blRect.SetParent(transform, false);
+            blRect.anchorMin = Vector2.zero;
+            blRect.anchorMax = new Vector2(0.3f, 0.3f);
+            blRect.offsetMin = Vector2.zero;
+            blRect.offsetMax = Vector2.zero;
+            _bottomLeftContainer = blRect;
+
+            // Top-left container
+            var topLeft = new GameObject("TopLeftContainer");
+            var tlRect = topLeft.AddComponent<RectTransform>();
+            tlRect.SetParent(transform, false);
+            tlRect.anchorMin = new Vector2(0, 0.7f);
+            tlRect.anchorMax = new Vector2(0.3f, 1f);
+            tlRect.offsetMin = Vector2.zero;
+            tlRect.offsetMax = Vector2.zero;
+            _topLeftContainer = tlRect;
+
+            // Top-right container
+            var topRight = new GameObject("TopRightContainer");
+            var trRect = topRight.AddComponent<RectTransform>();
+            trRect.SetParent(transform, false);
+            trRect.anchorMin = new Vector2(0.7f, 0.7f);
+            trRect.anchorMax = Vector2.one;
+            trRect.offsetMin = Vector2.zero;
+            trRect.offsetMax = Vector2.zero;
+            _topRightContainer = trRect;
+
+            // Bottom-right container
+            var bottomRight = new GameObject("BottomRightContainer");
+            var brRect = bottomRight.AddComponent<RectTransform>();
+            brRect.SetParent(transform, false);
+            brRect.anchorMin = new Vector2(0.7f, 0);
+            brRect.anchorMax = new Vector2(1f, 0.3f);
+            brRect.offsetMin = Vector2.zero;
+            brRect.offsetMax = Vector2.zero;
+            _bottomRightContainer = brRect;
+
+            // Center container
+            var center = new GameObject("CenterContainer");
+            var cRect = center.AddComponent<RectTransform>();
+            cRect.SetParent(transform, false);
+            cRect.anchorMin = new Vector2(0.3f, 0.3f);
+            cRect.anchorMax = new Vector2(0.7f, 0.7f);
+            cRect.offsetMin = Vector2.zero;
+            cRect.offsetMax = Vector2.zero;
+            _centerContainer = cRect;
+
+            Plugin.Log.LogDebug("Created HUD layout containers");
+        }
+
+        private void NotifyExtensions()
+        {
+            var context = new HudContext
+            {
+                HudRoot = transform,
+                TopLeftContainer = _topLeftContainer,
+                TopRightContainer = _topRightContainer,
+                BottomLeftContainer = _bottomLeftContainer,
+                BottomRightContainer = _bottomRightContainer,
+                CenterContainer = _centerContainer
+            };
+
+            VeneerExtensionRegistry.NotifyHudCreated(context);
+            Plugin.Log.LogInfo($"Notified {VeneerExtensionRegistry.GetHudExtensions().Count} HUD extensions");
         }
 
         /// <summary>
@@ -296,6 +384,9 @@ namespace Veneer.Vanilla.Replacements
         public static void Cleanup()
         {
             VeneerBossGroup.Cleanup();
+
+            // Notify extensions before destroying
+            VeneerExtensionRegistry.NotifyHudDestroyed();
 
             if (_instance != null)
             {
